@@ -1,15 +1,13 @@
 import { auth } from './firebase';
 
-export const OperationType = {
-  CREATE: 'create',
-  UPDATE: 'update',
-  DELETE: 'delete',
-  LIST: 'list',
-  GET: 'get',
-  WRITE: 'write',
-} as const;
-
-export type OperationType = typeof OperationType[keyof typeof OperationType];
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
 
 interface FirestoreErrorInfo {
   error: string;

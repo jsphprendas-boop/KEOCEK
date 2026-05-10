@@ -22,9 +22,7 @@ import {
   RotateCcw,
   Sun,
   Moon,
-  Building2,
-  ShieldCheck,
-  GitBranch
+  Building2
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { Button } from "@/components/ui/button";
@@ -51,7 +49,6 @@ import SupportInventorySection from "./admin/SupportInventorySection";
 import GasReportsSection from "./admin/GasReportsSection";
 import TrashSection from "./admin/TrashSection";
 import GlobalManagementSection from "./admin/GlobalManagementSection";
-import GovernanceSection from "./admin/GovernanceSection";
 
 interface AdminDashboardProps {
   user: User;
@@ -457,13 +454,6 @@ export default React.memo(function AdminDashboard({
             isGolden={isMasterAdmin}
             customActiveClass={activeTab === "recovery" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20" : ""}
           />
-          <SidebarItem 
-            icon={<ShieldCheck className="w-5 h-5" />} 
-            label="Gobernanza" 
-            active={activeTab === "governance"} 
-            onClick={() => handleTabChange("governance")} 
-            isGolden={isMasterAdmin}
-          />
 
           {isSuperAdmin && (
             <>
@@ -620,7 +610,6 @@ export default React.memo(function AdminDashboard({
                 {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} />}
                 {activeTab === "gas-reports" && <GasReportsSection reports={data.gasReports || []} user={effectiveUser} />}
                 {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} />}
-                {activeTab === "governance" && <GovernanceSection user={effectiveUser} data={data} onRefresh={onGlobalRefresh} />}
                 {activeTab === "global-management" && isSuperAdmin && (
                   <GlobalManagementSection 
                     user={effectiveUser}

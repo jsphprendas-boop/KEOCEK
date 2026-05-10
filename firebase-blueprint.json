@@ -27,9 +27,7 @@
         "supportProducts": { "type": "array" },
         "settings": { "type": "object" },
         "adminAuditLog": { "type": "array" },
-        "gasReports": { "type": "array" },
-        "workflows": { "type": "array", "description": "Enterprise workflow instances" },
-        "governancePolicies": { "type": "object", "description": "Data governance rules (tags, sensitivity, retention)" }
+        "gasReports": { "type": "array" }
       }
     },
     "PastHistory": {

@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
     "@fontsource-variable/geist": "^5.2.8",
     "@google/genai": "^1.50.1",
     "@tailwindcss/typography": "^0.5.19",
@@ -25,7 +28,6 @@
     "d3": "^7.9.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
-    "esbuild": "^0.28.0",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.4.0",

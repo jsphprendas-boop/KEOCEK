@@ -1,5 +1,5 @@
 {
   "name": "INTENDENCIA AUTONOMA",
-  "description": "Sistema empresarial de gestión de inventario y pedidos con flujos de aprobación multinivel, auditoría de gobernanza de datos y seguridad SSO integrada. Diseñado para alta fidelidad operativa en cocinas industriales.",
+  "description": "Aplicación avanzada de planificación y monitoreo de inventario para cocina con roles de administrador y cocinero, sistema de contaduría en tiempo real y gestión de pedidos.",
   "requestFramePermissions": []
 }

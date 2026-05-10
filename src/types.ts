@@ -50,12 +50,11 @@ export interface Request {
   userId: string;
   userName: string;
   items: RequestItem[];
-  status: 'pending' | 'reviewing' | 'approved' | 'confirmed' | 'rejected' | 'delivered';
+  status: 'pending' | 'confirmed' | 'rejected';
   isUrgent?: boolean;
   timestamp: string;
   note?: string;
   signature?: string; // Base64 data URL
-  workflowId?: string;
 }
 
 export interface User {
@@ -130,62 +129,6 @@ export interface TrashItem {
   deletedAt: string;
 }
 
-export interface GovernancePolicy {
-  id: string;
-  name: string;
-  description: string;
-  isEnabled: boolean;
-  value: any;
-  lastUpdatedBy: string;
-  lastUpdatedAt: string;
-}
-
-export interface WorkflowStage {
-  id: string;
-  name: string;
-  description: string;
-  assignedRole: 'admin' | 'cook' | 'viewer';
-  order: number;
-}
-
-export interface WorkflowInstance {
-  id: string;
-  title: string;
-  type: 'inventory_request' | 'purchase_order' | 'data_archival' | 'request';
-  currentStageId: string;
-  status: 'active' | 'completed' | 'cancelled' | 'rejected';
-  creatorId: string;
-  createdAt: string;
-  startedAt: string;
-  stages: Array<{
-    id: string;
-    name: string;
-    status: 'pending' | 'reviewing' | 'approved' | 'rejected';
-  }>;
-  history: Array<{
-    stageId: string;
-    actorId: string;
-    action: 'approved' | 'rejected' | 'commented';
-    timestamp: string;
-    comment?: string;
-  }>;
-  payload: any; // Context data (e.g. Request details)
-}
-
-export interface AuditEntry {
-  id: string;
-  timestamp: string;
-  userId: string;
-  userName: string;
-  action: string; // "UPDATE_PRODUCT", "DELETE_USER", etc.
-  entityType: string;
-  entityId: string;
-  oldValue?: any;
-  newValue?: any;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  metadata?: Record<string, any>;
-}
-
 export interface DBData {
   categories: Category[];
   products: Product[];
@@ -194,9 +137,6 @@ export interface DBData {
   users: User[];
   pastHistories: ArchivedHistory[];
   adminAuditLog?: Movement[];
-  auditEntries?: AuditEntry[]; // Detailed enterprise logs
-  workflows?: WorkflowInstance[];
-  governancePolicies?: GovernancePolicy[];
   supportRecords?: SupportRecord[];
   supportCategories?: SupportCategory[];
   supportProducts?: SupportProduct[];
@@ -211,10 +151,5 @@ export interface DBData {
       fronteras?: boolean;
     };
     customLocations?: Array<{ id: string, name: string, visible: boolean }>;
-    enterpriseEnablement?: {
-      workflowsEnabled: boolean;
-      ssoRequired: boolean;
-      auditEnabled: boolean;
-    };
   };
 }

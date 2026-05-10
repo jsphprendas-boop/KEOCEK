@@ -11,12 +11,26 @@ import admin from "firebase-admin";
 import { getFirestore } from "firebase-admin/firestore";
 
 async function startServer() {
-  console.log(`[SERVER] Starting server version: ${new Date().toISOString()}`);
   const app = express();
   app.set('trust proxy', 1);
   const httpServer = createServer(app);
-  const io = new Server(httpServer);
+  const io = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    connectTimeout: 45000,
+    transports: ["websocket", "polling"],
+    allowEIO3: true
+  });
   const PORT = 3000;
+
+  // Liveness Probe
+  app.get("/health", (req, res) => {
+    res.status(200).send("OK");
+  });
 
   const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
   let db: any = null;
@@ -27,55 +41,28 @@ async function startServer() {
       const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
       console.log(`[CONFIG] Read firebase-applet-config.json. Project: ${firebaseConfig.projectId}, Database: ${firebaseConfig.firestoreDatabaseId}`);
 
-      const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
-      console.log(`[FIREBASE] Attempting to target database: ${dbId}`);
-      try {
-        // Initialize Admin SDK
-        if (!admin.apps.length) {
-          const adminOptions: any = {};
-          if (firebaseConfig.projectId) adminOptions.projectId = firebaseConfig.projectId;
-          
-          admin.initializeApp(adminOptions);
-          const currentProject = admin.app().options.projectId;
-          console.log(`[FIREBASE] Admin initialized. Target Project: ${firebaseConfig.projectId}, Actual ADC Project: ${currentProject || 'Unknown'}`);
-        }
-      
-        // In firebase-admin v13+, getFirestore(dbId) targets a specific database ID for the default app
-        db = getFirestore(dbId);
-        console.log(`[FIREBASE] Firestore client created for database: ${dbId}`);
-        
-        // TEST CONNECTION: Perform a light read to check if DB is accessible
-        try {
-          console.log(`[FIREBASE] Testing connection to database: ${dbId}...`);
-          await db.doc("_test_/connection").get();
-          console.log(`[FIREBASE] Connection to database ${dbId} verified.`);
-        } catch (initialErr: any) {
-          const errMsg = initialErr.message || "";
-          const errCode = initialErr.code;
-          console.log(`[FIREBASE] Connection test result for ${dbId}: Code ${errCode}, Msg: ${errMsg}`);
+      // Force project ID into environment to ensure underlying SDKs use correct target
+      if (firebaseConfig.projectId) {
+        process.env.GOOGLE_CLOUD_PROJECT = firebaseConfig.projectId;
+        process.env.FIRESTORE_PROJECT_ID = firebaseConfig.projectId;
+      }
 
-          if (errMsg.includes("NOT_FOUND") || errCode === 5) {
-            if (dbId !== "(default)") {
-              console.error(`[FIREBASE] Database ${dbId} NOT FOUND. Falling back to (default) database.`);
-              db = getFirestore();
-              // Test default too
-              try {
-                await db.doc("_test_/connection").get();
-                console.log(`[FIREBASE] Fallback to (default) database successful.`);
-              } catch (defaultErr: any) {
-                console.error(`[FIREBASE] Fallback (default) database also failed: ${defaultErr.message}`);
-              }
-            } else {
-              console.error(`[FIREBASE] The (default) database was NOT FOUND. Please ensure Firestore is initialized in the console.`);
-            }
-          } else {
-            console.error(`[FIREBASE] Connection test error:`, errMsg);
-          }
-        }
+      // Initialize Admin SDK
+      if (!admin.apps.length) {
+        admin.initializeApp({
+          projectId: firebaseConfig.projectId
+        });
+        console.log(`[FIREBASE] Admin initialized for project: ${admin.app().options.projectId}`);
+      }
+      
+      const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+      try {
+        db = getFirestore(admin.app(), dbId);
+        console.log(`[FIREBASE] Firestore initialized for database: ${dbId}`);
       } catch (dbErr: any) {
-        console.error(`[FIREBASE] Error during Firestore initialization:`, dbErr.message || dbErr);
-        db = getFirestore(); 
-        console.log(`[FIREBASE] Falling back to default database client`);
+        console.error(`[FIREBASE] Failed targeting database ${dbId}:`, dbErr.message || dbErr);
+        db = getFirestore(admin.app()); 
+        console.log(`[FIREBASE] Falling back to (default) database`);
       }
     } catch (e) {
       console.error("[FIREBASE] Admin setup error [CRITICAL]:", e);
@@ -118,7 +105,6 @@ async function startServer() {
     GET: 'get',
     WRITE: 'write',
   } as const;
-
   type OperationType = typeof OperationType[keyof typeof OperationType];
 
   interface FirestoreErrorInfo {
@@ -182,18 +168,6 @@ async function startServer() {
     saveGlobalData();
   };
 
-  const addAuditEntry = (delData: any, entry: any) => {
-    if (!delData.auditEntries) delData.auditEntries = [];
-    const newEntry = {
-      id: "audit-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
-      timestamp: new Date().toISOString(),
-      ...entry
-    };
-    delData.auditEntries.push(newEntry);
-    // Keep 1000 entries for enterprise audit
-    if (delData.auditEntries.length > 1000) delData.auditEntries.shift();
-  };
-
   const getDefaultData = (delegationId: string) => ({
     id: delegationId,
     categories: [],
@@ -207,9 +181,6 @@ async function startServer() {
     supportProducts: [],
     gasReports: [],
     trash: [],
-    auditEntries: [],
-    workflows: [],
-    governancePolicies: [],
     settings: {
       locationVisibility: {
         fuerza_publica: true,
@@ -229,10 +200,6 @@ async function startServer() {
 
   // Helper to save global data
   async function saveGlobalData() {
-    if (!isGlobalLoaded) {
-      // console.warn("[SAVE] Blocked saveGlobalData because data is not yet loaded from Firestore.");
-      return;
-    }
     if (db) {
       try {
         await db.doc("system/global_config").set(sanitizeForFirestore(globalData));
@@ -294,9 +261,6 @@ async function startServer() {
             })),
             db.doc(`delegations/${delId}/system/main_db_data_2`).set(sanitizeForFirestore({
               adminAuditLog: data.adminAuditLog || [],
-              auditEntries: data.auditEntries || [],
-              workflows: data.workflows || [],
-              governancePolicies: data.governancePolicies || [],
               supportRecords: data.supportRecords || [],
               gasReports: data.gasReports || []
             })),
@@ -398,9 +362,6 @@ async function startServer() {
                   delData.supportCategories = cloudData.supportCategories || [];
                   delData.supportProducts = cloudData.supportProducts || [];
                   delData.gasReports = cloudData2.gasReports || [];
-                  delData.auditEntries = cloudData2.auditEntries || [];
-                  delData.workflows = cloudData2.workflows || [];
-                  delData.governancePolicies = cloudData2.governancePolicies || [];
                   delData.settings = cloudData.settings || delData.settings;
                   delData.trash = cloudTrash.trash || [];
                   
@@ -442,22 +403,20 @@ async function startServer() {
             return true;
           }
         } catch (e: any) {
+          console.error(`[FETCH] Error loading global config (DB: ${tDbId}):`, e.message || e);
+          
           const isPermissionDenied = e.message?.includes("PERMISSION_DENIED") || e.code === 7;
           const isNotFound = e.message?.includes("NOT_FOUND") || e.code === 5;
 
           if (tDbId !== "(default)" && (isPermissionDenied || isNotFound)) {
-             console.log(`[FETCH] DB ${tDbId} unreachable or denied. This is common if the database is still provisioning or private. Trying (default) fallback...`);
-             try {
-               const fallbackDb = getFirestore();
-               db = fallbackDb; 
-               return tryFetch(fallbackDb, "(default)", 0);
-             } catch (fallbackErr) {
-               console.error("[FETCH] Fatal error during fallback initialization:", fallbackErr);
-             }
-          } else if (tDbId === "(default)" && isNotFound) {
-             console.log(`[FETCH] (default) database not found. This is normal if only a custom-named database exists.`);
-          } else {
-             console.error(`[FETCH] Error loading global config (DB: ${tDbId}):`, e.message || e);
+            console.warn(`[FETCH] DB ${tDbId} unreachable. Trying (default)...`);
+            try {
+              const fallbackDb = getFirestore(admin.app());
+              db = fallbackDb; 
+              return tryFetch(fallbackDb, "(default)", 0);
+            } catch (fallbackErr) {
+              console.error("[FETCH] Fatal error during fallback initialization:", fallbackErr);
+            }
           }
           
           if (tDbId === "(default)" || retryCount >= 2) {
@@ -1417,24 +1376,11 @@ async function startServer() {
   });
 
   app.post("/api/requests/:id/confirm", (req, res) => {
-    const { data, save, id, userEmail } = getContext(req);
+    const { data, save, id } = getContext(req);
     const index = data.requests.findIndex((r: any) => r.id === req.params.id);
     if (index !== -1) {
       const request = data.requests[index];
-      const oldStatus = request.status;
       request.status = "confirmed";
-      
-      // Enterprise Audit
-      addAuditEntry(data, {
-        userId: userEmail,
-        userName: userEmail.split('@')[0],
-        action: "APPROVE_REQUEST",
-        entityType: "Request",
-        entityId: request.id,
-        oldValue: { status: oldStatus },
-        newValue: { status: "confirmed" },
-        severity: request.isUrgent ? 'high' : 'medium'
-      });
       
       // Withdraw products from inventory and create movements
       request.items.forEach((item: any) => {
@@ -1490,60 +1436,15 @@ async function startServer() {
   });
 
   app.post("/api/requests/:id/reject", (req, res) => {
-    const { data, save, id, userEmail } = getContext(req);
+    const { data, save, id } = getContext(req);
     const index = data.requests.findIndex((r: any) => r.id === req.params.id);
     if (index !== -1) {
-      const request = data.requests[index];
-      const oldStatus = request.status;
-      request.status = "rejected";
-
-      addAuditEntry(data, {
-        userId: userEmail,
-        userName: userEmail.split('@')[0],
-        action: "REJECT_REQUEST",
-        entityType: "Request",
-        entityId: request.id,
-        oldValue: { status: oldStatus },
-        newValue: { status: "rejected" },
-        severity: 'medium'
-      });
-
+      data.requests[index].status = "rejected";
       save();
       io.to(id).emit("db:update", data);
       res.json({ success: true });
     } else {
       res.status(404).json({ error: "Request not found" });
-    }
-  });
-
-  // Enterprise Workflow Transition
-  app.post("/api/workflow/transition/:id", (req, res) => {
-    const { data, save, id: delId, userEmail } = getContext(req);
-    const { status, note } = req.body;
-    const request = data.requests.find((r: any) => r.id === req.params.id);
-    
-    if (request) {
-      const oldStatus = request.status;
-      request.status = status;
-      
-      // Log transition
-      addAuditEntry(data, {
-        userId: userEmail,
-        userName: userEmail.split('@')[0],
-        action: "WORKFLOW_TRANSITION",
-        entityType: "Request",
-        entityId: request.id,
-        oldValue: oldStatus,
-        newValue: status,
-        severity: 'low',
-        metadata: { note }
-      });
-
-      save();
-      io.to(delId).emit("db:update", data);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Record not found" });
     }
   });
 
@@ -2160,8 +2061,15 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`[SERVER] Started successfully on port ${PORT}`);
+    console.log(`[INFO] Transport mode: websocket + polling`);
+  }).on("error", (err: any) => {
+    console.error("[FATAL] HTTP Server failed to listen:", err);
+    process.exit(1);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("FATAL: Server failed to start:", err);
+  process.exit(1);
+});

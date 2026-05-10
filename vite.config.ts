@@ -53,18 +53,6 @@ export default defineConfig(({mode}) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      rollupOptions: {
-        output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('lucide-react')) return 'icons';
-              if (id.includes('recharts') || id.includes('d3')) return 'charts';
-              if (id.includes('firebase')) return 'firebase';
-              return 'vendor';
-            }
-          }
-        }
-      }
     },
   };
 });
