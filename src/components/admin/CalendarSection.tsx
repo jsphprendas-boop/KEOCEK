@@ -52,8 +52,8 @@ export default function CalendarSection({ user, data }: CalendarSectionProps) {
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
   const allMovements = useMemo(() => {
-    const pastMoves = (data.pastHistories || []).flatMap(h => h.movements || []);
-    return [...(data.movements || []), ...pastMoves];
+    const pastMoves = data.pastHistories?.flatMap(h => h.movements) || [];
+    return [...data.movements, ...pastMoves];
   }, [data.movements, data.pastHistories]);
 
   const handleExportCalendar = () => {

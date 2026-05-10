@@ -13,26 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { motion, AnimatePresence } from "motion/react";
-import { Plus, UserPlus, Trash2, Building2, ShieldAlert, Fingerprint, CalendarDays, Activity, Users, ClipboardList, Globe, AlertTriangle, Zap } from "lucide-react";
+import { Plus, UserPlus, Trash2, Building2, ShieldAlert, Fingerprint, CalendarDays, Activity, Users, ClipboardList, Globe, AlertTriangle } from "lucide-react";
 
 interface GlobalManagementSectionProps {
   user: User;
-  onDelegationChange: (id?: string) => void;
-  onGlobalRefresh: () => void;
-  allDelegations: Delegation[];
-}
-
-interface AuditReport {
-  timestamp: string;
-  issues: { level: "CRITICAL" | "ERROR" | "WARNING", delId: string, msg: string }[];
-  stats: {
-    totalDelegations: number;
-    totalUsers: number;
-    orphanProducts: number;
-    delegationsWithNoAdmin: number;
-  };
+  onDelegationCreated: () => void;
+  delegations: Delegation[];
 }
 
 interface GlobalStats {
@@ -51,7 +38,7 @@ interface GlobalStats {
   }[];
 }
 
-export default function GlobalManagementSection({ user, onDelegationChange, onGlobalRefresh, allDelegations }: GlobalManagementSectionProps) {
+export default function GlobalManagementSection({ user, onDelegationCreated, delegations }: GlobalManagementSectionProps) {
   const [userToRevoke, setUserToRevoke] = useState<{id: string, name: string} | null>(null);
   const [globalUsers, setGlobalUsers] = useState<User[]>([]);
   const [newDelName, setNewDelName] = useState("");
@@ -60,9 +47,6 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<GlobalStats | null>(null);
   const [filterDelegationId, setFilterDelegationId] = useState<string | null>(null);
-
-  const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
 
   React.useEffect(() => {
     const fetchGlobalData = async () => {
@@ -76,41 +60,13 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
     fetchGlobalData();
     const interval = setInterval(fetchGlobalData, 60000); // Polling every 60s
     return () => clearInterval(interval);
-  }, [allDelegations]);
+  }, [delegations]);
 
   const filteredLogs = React.useMemo(() => {
     if (!stats?.recentActivity) return [];
     if (!filterDelegationId) return stats.recentActivity;
     return stats.recentActivity.filter(log => log.delegationId === filterDelegationId);
   }, [stats?.recentActivity, filterDelegationId]);
-
-  const handleRunAudit = async () => {
-    setIsAuditing(true);
-    try {
-      const report = await apiFetch("/api/admin/system-audit");
-      setAuditReport(report);
-      toast.success("Diagnóstico completado");
-    } catch (e: any) {
-      toast.error("Error al ejecutar diagnóstico");
-    } finally {
-      setIsAuditing(false);
-    }
-  };
-
-  const handleRepairSystem = async () => {
-    if (!confirm("¿Desea intentar la reparación automática de las inconsistencias detectadas?")) return;
-    setIsLoading(true);
-    try {
-      const res = await apiFetch("/api/admin/system-repair", { method: "POST" });
-      toast.success(`Reparación terminada. Acciones realizadas: ${res.repairsPerformed}`);
-      handleRunAudit();
-      onGlobalRefresh();
-    } catch (e: any) {
-      toast.error("Error durante la reparación");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleCreateDelegation = async () => {
     const selectedUser = globalUsers.find(u => u.id === masterAdminUserId);
@@ -133,7 +89,7 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
       setNewDelName("");
       setMasterAdminUserId("");
       setMasterAdminPassword("");
-      onDelegationChange();
+      onDelegationCreated();
     } catch (e: any) {
       toast.error(e.message || "Error al crear delegación");
     } finally {
@@ -151,7 +107,7 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
       });
       toast.success(`Instancia ${userToRevoke.name} revocada permanentemente`);
       setUserToRevoke(null);
-      onDelegationChange();
+      onDelegationCreated();
     } catch (e: any) {
       toast.error(e.message || "Error al revocar instancia");
     } finally {
@@ -216,135 +172,6 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
           </motion.div>
         ))}
       </div>
-
-      {/* System Diagnostic Panel */}
-      <Card className="border-none shadow-2xl shadow-red-500/5 bg-slate-900 text-white overflow-hidden relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent" />
-        <CardHeader className="flex flex-row items-center justify-between relative z-10">
-          <div>
-            <CardTitle className="text-xl font-black flex items-center gap-2">
-              <ShieldAlert className="w-6 h-6 text-amber-400" />
-              Diagnóstico y Salud del Sistema
-            </CardTitle>
-            <CardDescription className="text-slate-400 font-medium">Análisis de integridad de datos y seguridad multisede.</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button 
-               onClick={handleRunAudit} 
-               disabled={isAuditing}
-               variant="outline" 
-               className="bg-transparent border-slate-700 hover:bg-slate-800 text-white font-bold h-10 rounded-xl"
-            >
-              {isAuditing ? (
-                <Activity className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <Activity className="w-4 h-4 mr-2" />
-              )}
-              {isAuditing ? "Analizando..." : "Ejecutar Auditoría"}
-            </Button>
-
-            <Button 
-               onClick={async () => {
-                 if (!confirm("¿Desea ejecutar una prueba de estrés? Esto creará datos masivos de prueba en una nueva delegación temporal.")) return;
-                 setIsLoading(true);
-                 try {
-                   const res = await apiFetch("/api/admin/simulate-stress", { method: "POST" });
-                   toast.success("Prueba de estrés completada: " + res.message);
-                   onDelegationChange();
-                   onGlobalRefresh();
-                 } catch (e: any) {
-                   toast.error("Error en la prueba de estrés");
-                 } finally {
-                   setIsLoading(false);
-                 }
-               }} 
-               disabled={isLoading}
-               variant="outline" 
-               className="bg-transparent border-slate-700 hover:bg-slate-800 text-white font-bold h-10 rounded-xl"
-            >
-              <Zap className="w-4 h-4 mr-2 text-yellow-400" />
-              Prueba de Estrés
-            </Button>
-
-            <Button 
-               onClick={async () => {
-                 if (!confirm("⚠️ ATENCIÓN: Esta acción ELIMINARÁ PERMANENTEMENTE todos los datos de todas las delegaciones y usuarios. ¿Desea continuar?")) return;
-                 setIsLoading(true);
-                 try {
-                   const res = await apiFetch("/api/admin/factory-reset", { method: "POST" });
-                   toast.success(res.message);
-                   onDelegationChange();
-                   onGlobalRefresh();
-                 } catch (e: any) {
-                   toast.error("Error en el reseteo global");
-                 } finally {
-                   setIsLoading(false);
-                 }
-               }} 
-               disabled={isLoading}
-               variant="outline" 
-               className="bg-transparent border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold h-10 rounded-xl"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Hard Reset
-            </Button>
-
-            {auditReport && auditReport.issues.length > 0 && (
-              <Button 
-                 onClick={handleRepairSystem}
-                 className="bg-amber-500 hover:bg-amber-600 text-black font-black h-10 rounded-xl"
-              >
-                Auto-Reparar Sistema
-              </Button>
-            )}
-          </div>
-        </CardHeader>
-        {auditReport && (
-          <CardContent className="relative z-10 space-y-4 pt-0">
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                <div className="p-3 rounded-2xl bg-slate-800/50 border border-slate-700">
-                  <div className="text-[9px] font-black uppercase text-slate-500">Inconsistencias</div>
-                  <div className={`text-xl font-black ${auditReport.issues.length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {auditReport.issues.length}
-                  </div>
-                </div>
-                <div className="p-3 rounded-2xl bg-slate-800/50 border border-slate-700">
-                  <div className="text-[9px] font-black uppercase text-slate-500">Inasistencia Admin</div>
-                  <div className="text-xl font-black text-amber-400">{auditReport.stats.delegationsWithNoAdmin}</div>
-                </div>
-                <div className="p-3 rounded-2xl bg-slate-800/50 border border-slate-700">
-                  <div className="text-[9px] font-black uppercase text-slate-500">Art. Huérfanos</div>
-                  <div className="text-xl font-black text-slate-300">{auditReport.stats.orphanProducts}</div>
-                </div>
-                <div className="p-3 rounded-2xl bg-slate-800/50 border border-slate-700">
-                  <div className="text-[9px] font-black uppercase text-slate-500">Total Usuarios</div>
-                  <div className="text-xl font-black text-slate-300">{auditReport.stats.totalUsers}</div>
-                </div>
-             </div>
-
-             {auditReport.issues.length > 0 ? (
-               <ScrollArea className="h-48 rounded-2xl border border-slate-700 bg-slate-950/50 p-4">
-                  <div className="space-y-3">
-                    {auditReport.issues.map((issue, idx) => (
-                      <div key={idx} className="flex gap-3 text-[11px] font-medium border-l-2 p-2 bg-slate-900" style={{ borderColor: issue.level === 'CRITICAL' ? '#f87171' : issue.level === 'ERROR' ? '#fb923c' : '#fbbf24' }}>
-                        <Badge className={`h-4 px-1 text-[8px] font-black ${issue.level === 'CRITICAL' ? 'bg-red-500' : issue.level === 'ERROR' ? 'bg-orange-500' : 'bg-amber-500'}`}>
-                          {issue.level}
-                        </Badge>
-                        <span className="text-slate-400 font-mono">[{issue.delId}]</span>
-                        <span className="text-slate-200">{issue.msg}</span>
-                      </div>
-                    ))}
-                  </div>
-               </ScrollArea>
-             ) : (
-               <div className="p-8 text-center bg-emerald-500/10 rounded-2xl border border-emerald-500/20">
-                 <div className="text-emerald-400 font-black uppercase tracking-widest text-xs">Sistema Íntegro y Saludable</div>
-                 <div className="text-slate-400 text-[10px] mt-1">No se detectaron anomalías estructurales en la base de datos.</div>
-               </div>
-             )}
-          </CardContent>
-        )}
-      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Create Delegation Card */}
@@ -430,7 +257,7 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
           <div className="flex items-center justify-between">
             <h3 className="font-black text-slate-900 flex items-center gap-2 uppercase tracking-widest text-sm">
                Intendencias Existentes
-               <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors h-5 px-1.5 font-black">{allDelegations.length}</Badge>
+               <Badge className="bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors h-5 px-1.5 font-black">{delegations.length}</Badge>
             </h3>
             <div className="w-12 h-1 bg-slate-200 rounded-full" />
           </div>
@@ -439,7 +266,7 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
             className="grid grid-cols-1 md:grid-cols-2 gap-6"
           >
             <AnimatePresence mode="popLayout">
-              {allDelegations.map((del, index) => (
+              {delegations.map((del, index) => (
                 <motion.div
                   key={del.id}
                   initial={{ opacity: 0, y: 20 }}
@@ -543,7 +370,7 @@ export default function GlobalManagementSection({ user, onDelegationChange, onGl
             <Activity className="w-5 h-5 text-indigo-600" />
             <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-800 leading-tight">
               {filterDelegationId 
-                ? `Eventos: ${allDelegations.find(d => d.id === filterDelegationId)?.name}` 
+                ? `Eventos: ${delegations.find(d => d.id === filterDelegationId)?.name}` 
                 : "Bitácora de Eventos Globales"}
             </h3>
           </div>

@@ -130,7 +130,7 @@ export default function AccountingSection({
   const [newProductExpiry, setNewProductExpiry] = useState("");
 
   const filteredProducts = useMemo(() => {
-    return (data.products || []).filter(p => 
+    return data.products.filter(p => 
       p.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [data.products, searchTerm]);
@@ -140,7 +140,7 @@ export default function AccountingSection({
   }, [data.pastHistories]);
 
   const allAccountsMovements = useMemo(() => {
-    return [...(data.movements || []), ...pastMoves];
+    return [...data.movements, ...pastMoves];
   }, [data.movements, pastMoves]);
 
   const [accountSearchTerm, setAccountSearchTerm] = useState("");
@@ -1462,7 +1462,7 @@ export default function AccountingSection({
                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Sesiones Archivadas</h4>
                        </div>
                        <Badge variant="outline" className="text-[9px] font-bold text-slate-400 border-slate-200">
-                         {(data.pastHistories || []).filter(h => h.date.startsWith(format(new Date(), "yyyy-MM"))).length} Cierres
+                         {data.pastHistories.filter(h => h.date.startsWith(format(new Date(), "yyyy-MM"))).length} Cierres
                        </Badge>
                     </div>
                     
@@ -1493,7 +1493,7 @@ export default function AccountingSection({
                             </Button>
                           ))
                         }
-                        {(data.pastHistories || []).filter(h => h.date.startsWith(format(new Date(), "yyyy-MM"))).length === 0 && (
+                        {data.pastHistories.filter(h => h.date.startsWith(format(new Date(), "yyyy-MM"))).length === 0 && (
                           <div className="col-span-full h-24 flex flex-col items-center justify-center text-slate-400 opacity-40 border-2 border-dashed border-slate-100 rounded-2xl">
                             <p className="text-[10px] font-bold uppercase">Sin cierres mensuales</p>
                           </div>

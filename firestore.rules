@@ -20,14 +20,19 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
 
+    // Validation for GlobalConfig
+    function isValidGlobalConfig(data) {
+      return data.keys().hasAll(['delegations', 'superAdmins']) &&
+             data.delegations is list &&
+             data.superAdmins is list;
+    }
+
     // --- COLLECTIONS ---
 
     // Global System Config
-    match /system/global_config {
-      // Publicly readable so app can check for maintenance or superadmin status
-      // In production, you might want to restrict this more
+    match /system/{configId} {
       allow read: if true;
-      allow write: if isSuperAdmin();
+      allow write: if configId == 'global_config' && isSuperAdmin() && isValidGlobalConfig(incoming());
     }
 
     // Delegations and their internal systems

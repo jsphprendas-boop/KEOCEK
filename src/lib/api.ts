@@ -4,7 +4,6 @@
  */
 
 export async function apiFetch(url: string, options: RequestInit = {}) {
-  const delegationId = localStorage.getItem("ia_delegation_id") || "default";
   let userEmail = "";
   try {
     const userStr = localStorage.getItem("ia_user");
@@ -17,7 +16,6 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
   const headers = {
     ...options.headers as any,
     "Content-Type": "application/json",
-    "x-delegation-id": delegationId,
     "x-user-email": userEmail
   };
 

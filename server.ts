@@ -14,23 +14,8 @@ async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
   const httpServer = createServer(app);
-  const io = new Server(httpServer, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    },
-    pingTimeout: 60000,
-    pingInterval: 25000,
-    connectTimeout: 45000,
-    transports: ["websocket", "polling"],
-    allowEIO3: true
-  });
+  const io = new Server(httpServer);
   const PORT = 3000;
-
-  // Liveness Probe
-  app.get("/health", (req, res) => {
-    res.status(200).send("OK");
-  });
 
   const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
   let db: any = null;
@@ -40,34 +25,45 @@ async function startServer() {
     try {
       const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
       
-      // Initialize Admin SDK - Always use config projectId to match the databaseId
+      // Force project ID into environment BEFORE any Firebase operations
+      const pId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
+      if (pId) {
+        process.env.GOOGLE_CLOUD_PROJECT = pId;
+        process.env.FIRESTORE_PROJECT_ID = pId;
+      }
+
+      console.log(`[CONFIG] Read firebase-applet-config.json. Project: ${pId}, Database: ${firebaseConfig.firestoreDatabaseId}`);
+
+      // Initialize Admin SDK with automatic discovery of credentials
       if (!admin.apps.length) {
-        admin.initializeApp({
-          projectId: firebaseConfig.projectId
-        });
-        console.log(`[FIREBASE] Admin initialized with Project ID: ${firebaseConfig.projectId}`);
+        try {
+          // Standard initialization for Cloud environments
+          admin.initializeApp({
+            projectId: pId
+          });
+          console.log(`[FIREBASE] Admin SDK initialized for project: ${admin.app().options.projectId}`);
+        } catch (initErr: any) {
+          console.error(`[FIREBASE] Failed explicit init:`, initErr.message);
+          // Fallback to default init which often works better in sandboxed environments
+          admin.initializeApp();
+          console.log(`[FIREBASE] Admin SDK fell back to default initialization`);
+        }
       }
       
-      const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+      // Ensure dbId is clean
+      const dbId = (firebaseConfig.firestoreDatabaseId || "").trim() || "(default)";
       
       try {
         db = getFirestore(admin.app(), dbId);
-        console.log(`[FIREBASE] Firestore initialized for database: ${dbId}`);
+        console.log(`[FIREBASE] Firestore session started for database: ${dbId}`);
       } catch (dbErr: any) {
-        console.error(`[FIREBASE] Failed targeting database ${dbId}:`, dbErr.message || dbErr);
+        db = getFirestore(admin.app()); 
+        console.log(`[FIREBASE] Falling back to primary (default) database`);
       }
-    } catch (e: any) {
-      console.error("[FIREBASE] Admin setup error [CRITICAL]:", e);
+    } catch (e) {
+      console.error("[FIREBASE] Critical configuration parsing error:", e);
     }
   }
-
-  // Middleware de logging para diagnóstico
-  app.use((req, res, next) => {
-    if (req.url.startsWith('/api')) {
-      // console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} | Firebase DB: ${db ? 'Initialized' : 'Null'}`);
-    }
-    next();
-  });
 
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
@@ -89,15 +85,14 @@ async function startServer() {
   }
 
   // Robust Firestore Error Handling
-  const OperationType = {
-    CREATE: 'create',
-    UPDATE: 'update',
-    DELETE: 'delete',
-    LIST: 'list',
-    GET: 'get',
-    WRITE: 'write',
-  } as const;
-  type OperationType = typeof OperationType[keyof typeof OperationType];
+  enum OperationType {
+    CREATE = 'create',
+    UPDATE = 'update',
+    DELETE = 'delete',
+    LIST = 'list',
+    GET = 'get',
+    WRITE = 'write',
+  }
 
   interface FirestoreErrorInfo {
     error: string;
@@ -134,32 +129,6 @@ async function startServer() {
     auditLogs: []
   };
 
-  const addGlobalLog = (action: string, details: string, user: string, delegationId?: string, delegationName?: string, req?: express.Request) => {
-    if (!globalData.auditLogs) globalData.auditLogs = [];
-    
-    // Capture basic metadata if request is provided
-    const metadata = req ? {
-      ip: req.ip || req.headers['x-forwarded-for'] || 'unknown',
-      userAgent: req.headers['user-agent'] || 'unknown',
-    } : undefined;
-
-    globalData.auditLogs.push({
-      id: "log-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
-      timestamp: new Date().toISOString(),
-      action,
-      details,
-      user,
-      delegationId,
-      delegationName,
-      metadata
-    });
-    // Keep only last 200 logs
-    if (globalData.auditLogs.length > 200) {
-      globalData.auditLogs.shift();
-    }
-    saveGlobalData();
-  };
-
   const getDefaultData = (delegationId: string) => ({
     id: delegationId,
     categories: [],
@@ -186,7 +155,9 @@ async function startServer() {
     users: []
   });
 
-  const dataByDelegation: { [key: string]: any } = {};
+  const dataByDelegation: { [key: string]: any } = {
+    "default": getDefaultData("default")
+  };
   const loadedDelegations = new Set<string>();
   let isGlobalLoaded = false;
 
@@ -268,8 +239,7 @@ async function startServer() {
   }
 
   const getContext = (req: express.Request) => {
-    const delIdHeader = req.headers["x-delegation-id"];
-    const delId = (Array.isArray(delIdHeader) ? delIdHeader[0] : delIdHeader as string) || "default";
+    const delId = "default";
     const userEmail = (Array.isArray(req.headers["x-user-email"]) ? req.headers["x-user-email"][0] : req.headers["x-user-email"] as string || "").toLowerCase();
     
     // Ensure we have a structure for this delegation if it's new
@@ -277,19 +247,15 @@ async function startServer() {
       dataByDelegation[delId] = getDefaultData(delId);
     }
 
-    const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
+    const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com", "alecamposa32@gmail.com"];
     const isSuperAdmin = superAdmins.some((email: string) => typeof email === 'string' && email.toLowerCase() === userEmail);
     const delData = dataByDelegation[delId];
-    
-    const userInDelegation = delData.users.find((u: any) => u.email === userEmail);
-    const isAdmin = isSuperAdmin || (userInDelegation && userInDelegation.role === "admin" && userInDelegation.isApproved);
 
     return { 
       id: delId, 
       data: delData,
       userEmail,
       isSuperAdmin,
-      isAdmin,
       save: () => saveDelegationData(delId)
     };
   };
@@ -313,9 +279,8 @@ async function startServer() {
       
       const tryFetch = async (targetDb: any, tDbId: string, retryCount = 0): Promise<boolean> => {
         try {
-          console.log(`[FETCH] Loading global config (DB: ${tDbId}, Attempt: ${retryCount + 1})...`);
+          // Verify database responsiveness with a simple check
           const globalSnap = await targetDb.doc("system/global_config").get();
-          console.log(`[FETCH] Success from ${tDbId}. Exists: ${globalSnap.exists}`);
           
           if (globalSnap.exists) {
             const cloudGlobal = globalSnap.data() as any;
@@ -326,89 +291,55 @@ async function startServer() {
             const hardcodedSuperAdmins = ["jsphprendas@gmail.com", "alecamposa32@gmail.com"];
             globalData.superAdmins = Array.from(new Set([...(globalData.superAdmins || []), ...hardcodedSuperAdmins]));
             
-            // Load delegations data in background
-            for (const del of globalData.delegations) {
-              const delId = del.id;
-              if (!dataByDelegation[delId]) {
-                dataByDelegation[delId] = getDefaultData(delId);
-              }
+            // Load ONLY default delegation data
+            const delId = "default";
+            try {
+              const [mainSnap, data1Snap, data2Snap, trashSnap] = await Promise.all([
+                targetDb.doc(`delegations/${delId}/system/main_db`).get(),
+                targetDb.doc(`delegations/${delId}/system/main_db_data_1`).get(),
+                targetDb.doc(`delegations/${delId}/system/main_db_data_2`).get(),
+                targetDb.doc(`delegations/${delId}/system/trash_db`).get()
+              ]);
               
-              try {
-                const [mainSnap, data1Snap, data2Snap, trashSnap] = await Promise.all([
-                  targetDb.doc(`delegations/${delId}/system/main_db`).get(),
-                  targetDb.doc(`delegations/${delId}/system/main_db_data_1`).get(),
-                  targetDb.doc(`delegations/${delId}/system/main_db_data_2`).get(),
-                  targetDb.doc(`delegations/${delId}/system/trash_db`).get()
-                ]);
+              const delData = dataByDelegation[delId];
+
+              if (mainSnap.exists) {
+                const cloudData = mainSnap.data() as any;
+                const cloudData1 = data1Snap.exists ? data1Snap.data() as any : {};
+                const cloudData2 = data2Snap.exists ? data2Snap.data() as any : {};
+                const cloudTrash = trashSnap.exists ? trashSnap.data() as any : {};
+
+                delData.categories = cloudData.categories || [];
+                delData.products = cloudData.products || [];
+                delData.movements = cloudData1.movements || [];
+                delData.requests = cloudData1.requests || [];
+                delData.adminAuditLog = cloudData2.adminAuditLog || [];
+                delData.supportRecords = cloudData2.supportRecords || [];
+                delData.supportCategories = cloudData.supportCategories || [];
+                delData.supportProducts = cloudData.supportProducts || [];
+                delData.gasReports = cloudData2.gasReports || [];
+                delData.settings = cloudData.settings || delData.settings;
+                delData.trash = cloudTrash.trash || [];
                 
-                const delData = dataByDelegation[delId];
-
-                if (mainSnap.exists) {
-                  const cloudData = mainSnap.data() as any;
-                  const cloudData1 = data1Snap.exists ? data1Snap.data() as any : {};
-                  const cloudData2 = data2Snap.exists ? data2Snap.data() as any : {};
-                  const cloudTrash = trashSnap.exists ? trashSnap.data() as any : {};
-
-                  delData.categories = cloudData.categories || [];
-                  delData.products = cloudData.products || [];
-                  delData.movements = cloudData1.movements || [];
-                  delData.requests = cloudData1.requests || [];
-                  delData.adminAuditLog = cloudData2.adminAuditLog || [];
-                  delData.supportRecords = cloudData2.supportRecords || [];
-                  delData.supportCategories = cloudData.supportCategories || [];
-                  delData.supportProducts = cloudData.supportProducts || [];
-                  delData.gasReports = cloudData2.gasReports || [];
-                  delData.settings = cloudData.settings || delData.settings;
-                  delData.trash = cloudTrash.trash || [];
-                  
-                  const cloudUsers = cloudData.users || [];
-                  const memoryUsers = delData.users || [];
-                  const mergedUsers = [...cloudUsers];
-                  
-                  memoryUsers.forEach((mu: any) => {
-                    if (!mergedUsers.some((cu: any) => cu.email.toLowerCase() === mu.email.toLowerCase())) {
-                      mergedUsers.push(mu);
-                    }
-                  });
-                  delData.users = mergedUsers;
-                  
-                  const masterExists = delData.users.find((u: any) => u.email === del.masterAdminEmail);
-                  if (!masterExists && del.masterAdminEmail) {
-                    delData.users.push({
-                      id: "admin-" + delId,
-                      email: del.masterAdminEmail,
-                      role: "admin",
-                      name: "Administrador Delegation",
-                      isApproved: true,
-                      delegationId: delId
-                    });
-                  }
-                }
-                loadedDelegations.add(delId);
-              } catch (e) {
-                console.error(`[FETCH] Error loading delegation ${delId} from ${tDbId}:`, e);
+                delData.users = cloudData.users || [];
               }
+              loadedDelegations.add(delId);
+            } catch (e) {
+              console.error(`[FETCH] Error loading delegation ${delId} from ${tDbId}:`, e);
             }
-            console.log(`[FETCH] Delegations data loaded in background from ${tDbId}`);
             return true;
           } else {
             console.log(`[FETCH] Global config not found in ${tDbId}, creating default...`);
             await targetDb.doc("system/global_config").set(sanitizeForFirestore(globalData));
             isGlobalLoaded = true;
-            globalData.delegations.forEach((d: any) => loadedDelegations.add(d.id));
+            loadedDelegations.add("default");
             return true;
           }
         } catch (e: any) {
-          console.error(`[FETCH] Error loading global config (DB: ${tDbId}):`, e.message || e);
-          
           if (retryCount < 2) {
-             console.log(`[FETCH] Retrying in 2s...`);
-             await new Promise(r => setTimeout(r, 2000));
-             return tryFetch(targetDb, tDbId, retryCount + 1);
+            await new Promise(r => setTimeout(r, 3000));
+            return tryFetch(targetDb, tDbId, retryCount + 1);
           }
-          
-          isGlobalLoaded = true; // Still allow app to start
-          globalData.delegations.forEach((d: any) => loadedDelegations.add(d.id));
           return false;
         }
       };
@@ -470,6 +401,7 @@ async function startServer() {
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
+    console.log("Health check requested");
     res.json({ 
       status: "ok", 
       timestamp: new Date().toISOString(),
@@ -478,81 +410,9 @@ async function startServer() {
     });
   });
 
-  // Global API for managing delegations
+  // Global API for managing delegations (READ ONLY in simple mode)
   app.get("/api/global/delegations", (req, res) => {
     res.json(globalData.delegations);
-  });
-
-  app.post("/api/global/delegations", (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    const { name, masterAdminEmail, masterAdminPassword } = req.body;
-    
-    if (!name) return res.status(400).json({ error: "El nombre de la aplicación/delegación es obligatorio" });
-
-    const newDel = {
-      id: "del-" + Date.now(),
-      name: (name || "Nueva Delegación").trim(),
-      masterAdminEmail: (masterAdminEmail || "").toLowerCase().trim(),
-      masterAdminPassword: (masterAdminPassword || "").trim(),
-      createdAt: new Date().toISOString()
-    };
-    
-    if (!newDel.masterAdminEmail) return res.status(400).json({ error: "El correo del administrador maestro es obligatorio" });
-
-    // Initialize standard data structure for this delegation
-    dataByDelegation[newDel.id] = getDefaultData(newDel.id);
-    loadedDelegations.add(newDel.id); 
-    
-    // Add the master admin as the first official user of this delegation
-    // Search globally first to see if they exist
-    let existingUser = null;
-    Object.values(dataByDelegation).forEach((delData: any) => {
-       if (existingUser) return;
-       const found = delData.users.find((u: any) => u.email.toLowerCase() === newDel.masterAdminEmail);
-       if (found) existingUser = { ...found }; // Clone it
-    });
-
-    if (existingUser) {
-      existingUser.role = "admin";
-      existingUser.isApproved = true;
-      existingUser.delegationId = newDel.id;
-      if (newDel.masterAdminPassword) existingUser.password = newDel.masterAdminPassword;
-      dataByDelegation[newDel.id].users.push(existingUser);
-    } else {
-      dataByDelegation[newDel.id].users.push({
-        id: "admin-" + newDel.id,
-        email: newDel.masterAdminEmail,
-        role: "admin",
-        name: "Administrador Maestro",
-        isApproved: true,
-        delegationId: newDel.id,
-        password: newDel.masterAdminPassword
-      });
-    }
-
-    globalData.delegations.push(newDel);
-    addGlobalLog("CREACION_DELEGACION", `Se creó la delegación ${newDel.name}`, masterAdminEmail, newDel.id, newDel.name);
-    saveGlobalData();
-    saveDelegationData(newDel.id);
-    res.json(newDel);
-  });
-
-  app.delete("/api/global/delegations/:id", (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    const delId = req.params.id;
-    if (delId === "default") return res.status(400).json({ error: "No se puede eliminar la sede principal" });
-
-    globalData.delegations = globalData.delegations.filter((d: any) => d.id !== delId);
-    delete dataByDelegation[delId];
-    
-    addGlobalLog("ELIMINACION_DELEGACION", `Se eliminó permanentemente la delegación ID: ${delId}`, "Super Admin", delId);
-    saveGlobalData();
-    // In a real database we would also delete the documents from Firestore here
-    res.json({ success: true, message: "Delegación eliminada permanentemente" });
   });
 
   // SUPER ADMIN GLOBAL STATS
@@ -778,7 +638,6 @@ async function startServer() {
       saveDelegationData(delId);
       io.to(delId).emit("db:update", data);
       io.to(delId).emit("notification", { message: `Nuevo usuario registrado por Google: ${newUser.name}`, type: "user", targetRole: "admin" });
-      addGlobalLog("LOGIN_GOOGLE", `Usuario ingresó/registró con Google: ${newUser.email}`, newUser.email, delId, undefined, req);
       return res.json(newUser);
     }
   });
@@ -827,7 +686,6 @@ async function startServer() {
           user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
         }
         saveDelegationData(delId);
-        addGlobalLog("LOGIN_PASSWORD", `Acceso administrativo (Maestro) concedido: ${lowerEmail}`, lowerEmail, delId, undefined, req);
         return res.json(user);
       } else {
         // Correct email but wrong master key
@@ -891,7 +749,6 @@ async function startServer() {
     
     // Global Log
     const del = globalData.delegations.find((d: any) => d.id === delId);
-    addGlobalLog("REGISTRO_USUARIO", `Nuevo registro: ${newUser.name} (${newUser.email})`, newUser.email, delId, del?.name);
 
     io.to(delId).emit("notification", { message: `Nuevo usuario registrado: ${name} ${lastName}`, type: "user", targetRole: "admin" });
     res.json(newUser);
@@ -916,17 +773,13 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/change-role", (req, res) => {
-    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
-    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para cambiar roles" });
-    
+    const { data, save, id } = getContext(req);
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     
     if (userIndex !== -1) {
-      const user = data.users[userIndex];
-      const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
-      if (superAdmins.some((email: string) => email.toLowerCase() === user.email.toLowerCase())) {
-        return res.status(403).json({ error: "No se puede cambiar el rol de un super usuario" });
+      if (data.users[userIndex].email === "jsphprendas@gmail.com") {
+        return res.status(403).json({ error: "No se puede cambiar el rol del administrador maestro" });
       }
       
       data.users[userIndex].role = role;
@@ -939,9 +792,7 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/approve", (req, res) => {
-    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
-    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para aprobar usuarios" });
-    
+    const { data, save, id } = getContext(req);
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     if (userIndex !== -1) {
@@ -955,7 +806,6 @@ async function startServer() {
 
       // Global Log
       const del = globalData.delegations.find((d: any) => d.id === id);
-      addGlobalLog("APROBACION_USUARIO", `Usuario aprobado: ${data.users[userIndex].email} como ${role || data.users[userIndex].role}`, "Admin", id, del?.name);
 
       res.json(data.users[userIndex]);
     } else {
@@ -964,9 +814,7 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/reject", (req, res) => {
-    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
-    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para rechazar usuarios" });
-    
+    const { data, save, id } = getContext(req);
     data.users = data.users.filter((u: any) => u.id !== req.params.id);
     save();
     io.to(id).emit("db:update", data);
@@ -976,15 +824,12 @@ async function startServer() {
   });
 
   app.delete("/api/users/:id", (req, res) => {
-    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
-    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para eliminar usuarios" });
-    
+    const { data, save, id } = getContext(req);
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     if (userIndex !== -1) {
       const user = data.users[userIndex];
-      const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
-      if (superAdmins.some((email: string) => email.toLowerCase() === user.email.toLowerCase())) {
-        return res.status(403).json({ error: "No se puede eliminar a un super usuario" });
+      if (user.email === "jsphprendas@gmail.com") {
+        return res.status(403).json({ error: "No se puede eliminar al administrador maestro" });
       }
       
       if (!data.trash) data.trash = [];
@@ -1024,296 +869,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // GLOBAL DIAGNOSTICS & AUDIT
-  app.get("/api/admin/system-audit", (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    const report: any = {
-      timestamp: new Date().toISOString(),
-      issues: [],
-      stats: {
-        totalDelegations: globalData.delegations.length,
-        totalUsers: 0,
-        orphanProducts: 0,
-        delegationsWithNoAdmin: 0,
-        duplicateEmails: 0,
-        brokenRequests: 0,
-        orphanedUsers: 0
-      }
-    };
-
-    const allEmailMap: Record<string, string[]> = {}; // email -> [delegationIds]
-
-    // 1. Audit Global Delegation List
-    globalData.delegations.forEach((d: any) => {
-      if (!d.id || !d.name) {
-        report.issues.push({ level: "CRITICAL", delId: d.id || "unknown", msg: "Delegación con metadatos corruptos en el registro global." });
-      }
-      
-      // Ensure data structure exists in memory
-      if (!dataByDelegation[d.id]) {
-        report.issues.push({ level: "ERROR", delId: d.id, msg: "Faltan datos operacionales en memoria para esta delegación." });
-      }
-    });
-
-    Object.keys(dataByDelegation).forEach(delId => {
-      const delData = dataByDelegation[delId];
-      const delInfo = globalData.delegations.find(d => d.id === delId);
-      
-      if (delId !== "default" && !delInfo) {
-        report.stats.orphanedUsers += delData.users.length;
-        report.issues.push({ level: "CRITICAL", delId, msg: `Datos de delegación activa pero NO registrada en el índice global.` });
-      }
-
-      report.stats.totalUsers += delData.users.length;
-
-      // Check for admin presence
-      const hasAdmin = delData.users.some((u: any) => u.role === "admin" && u.isApproved);
-      if (!hasAdmin && delId !== "default") {
-        report.stats.delegationsWithNoAdmin++;
-        report.issues.push({ level: "CRITICAL", delId, msg: "Delegación sin administrador activo. Nadie puede gestionar pedidos localmente." });
-      }
-
-      // Check for orphan products (missing category)
-      delData.products.forEach((p: any) => {
-        const catExists = delData.categories.some((c: any) => c.name === p.category);
-        if (!catExists) {
-          report.stats.orphanProducts++;
-          report.issues.push({ level: "WARNING", delId, msg: `Artículo '${p.name}' con bloque inexistente: '${p.category}'` });
-        }
-      });
-
-      // User Integrity & Duplicate Check
-      delData.users.forEach((u: any) => {
-        if (!u.id || !u.email) {
-          report.issues.push({ level: "ERROR", delId, msg: `Usuario detectado con datos corruptos (ID o Email faltante).` });
-        } else {
-          const email = u.email.toLowerCase();
-          if (!allEmailMap[email]) allEmailMap[email] = [];
-          allEmailMap[email].push(delId);
-        }
-      });
-
-      // Request Integrity
-      delData.requests.forEach((r: any) => {
-        const missingItems = r.items.filter((item: any) => !delData.products.some((p: any) => p.id === item.productId));
-        if (missingItems.length > 0) {
-          report.stats.brokenRequests++;
-          report.issues.push({ level: "ERROR", delId, msg: `Pedido #${r.id.substring(0,8)} contiene ${missingItems.length} artículos que ya no existen en inventario.` });
-        }
-      });
-
-      // Stock consistency
-      delData.products.forEach((p: any) => {
-        const moves = delData.movements.filter((m: any) => m.productId === p.id);
-        const calcIn = moves.filter((m: any) => m.type === 'in').reduce((sum: number, m: any) => sum + (parseFloat(m.quantity) || 0), 0);
-        const calcOut = moves.filter((m: any) => m.type === 'out').reduce((sum: number, m: any) => sum + (parseFloat(m.quantity) || 0), 0);
-        const diff = calcIn - calcOut;
-        const current = parseFloat(p.quantity) || 0;
-        
-        if (Math.abs(diff - current) > 0.01) {
-           report.issues.push({ 
-             level: "WARNING", 
-             delId, 
-             msg: `Articulo '${p.name}': Discrepancia de stock. Calculado via movimientos: ${diff}, En ficha técnica: ${current}` 
-           });
-        }
-      });
-    });
-
-    // Check for global duplicates across all delegations
-    for (const email of Object.keys(allEmailMap)) {
-      if (allEmailMap[email].length > 1) {
-        report.stats.duplicateEmails++;
-        report.issues.push({ 
-          level: "WARNING", 
-          delId: "global", 
-          msg: `Email duplicado en múltiples delegaciones: ${email} (Encontrado en: ${allEmailMap[email].join(", ")})` 
-        });
-      }
-    }
-
-    res.json(report);
-  });
-
-  app.post("/api/admin/system-repair", (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    let repairs = 0;
-    Object.keys(dataByDelegation).forEach(delId => {
-      const delData = dataByDelegation[delId];
-      const delInfo = globalData.delegations.find(d => d.id === delId);
-
-      // Fix 1: Ensure master admin is in the users list
-      if (delInfo && delInfo.masterAdminEmail) {
-        const hasMaster = delData.users.some((u: any) => u.email.toLowerCase() === delInfo.masterAdminEmail.toLowerCase());
-        if (!hasMaster) {
-          delData.users.push({
-            id: "repair-admin-" + Date.now(),
-            email: delInfo.masterAdminEmail.toLowerCase(),
-            role: "admin",
-            name: "Administrador Maestro (Auto-Reparado)",
-            isApproved: true,
-            delegationId: delId,
-            password: delInfo.masterAdminPassword || "INTEN4321"
-          });
-          repairs++;
-        }
-      }
-
-      // Fix 2: Ensure orphan products have a 'General' category
-      const orphanProds = delData.products.filter((p: any) => !delData.categories.some((c: any) => c.name === p.category));
-      if (orphanProds.length > 0) {
-        if (!delData.categories.some((c: any) => c.name === "General")) {
-          delData.categories.push({ id: "fix-cat-" + Date.now(), name: "General", location: "fuerza_publica" });
-          repairs++;
-        }
-        orphanProds.forEach((p: any) => {
-          p.category = "General";
-          repairs++;
-        });
-      }
-
-      // Fix 3: Sanitize Users (Remove duplicates within same delegation)
-      const seenEmails = new Set();
-      const uniqueUsers = [];
-      for (const u of delData.users) {
-        if (!u.email) continue;
-        if (seenEmails.has(u.email.toLowerCase())) {
-          repairs++;
-          continue; 
-        }
-        seenEmails.add(u.email.toLowerCase());
-        uniqueUsers.push(u);
-      }
-      if (delData.users.length !== uniqueUsers.length) {
-        delData.users = uniqueUsers;
-      }
-
-      // Fix 4: Remove broken requests
-      if (delData.requests.length > 0) {
-        const validRequests = delData.requests.filter((r: any) => {
-           const hasValidItems = r.items.every((item: any) => delData.products.some((p: any) => p.id === item.productId));
-           return hasValidItems;
-        });
-        if (validRequests.length !== delData.requests.length) {
-           repairs += (delData.requests.length - validRequests.length);
-           delData.requests = validRequests;
-        }
-      }
-
-      if (repairs > 0) saveDelegationData(delId);
-    });
-
-    res.json({ success: true, repairsPerformed: repairs });
-  });
-
-  app.post("/api/admin/simulate-stress", (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    const delId = "stress-test-" + Date.now();
-    const delName = "JURISDICCIÓN PRUEBA ESTRÉS";
-    
-    // 1. Create dummy delegation
-    globalData.delegations.push({
-      id: delId,
-      name: delName,
-      masterAdminEmail: "tester@stress.com",
-      masterAdminPassword: "password123",
-      createdAt: new Date().toISOString()
-    });
-    
-    const delData = getDefaultData(delId);
-    dataByDelegation[delId] = delData;
-    loadedDelegations.add(delId);
-
-    // 2. Flood with dummy data
-    // Add categories
-    const categories = ["ABARROTES", "LIMPIEZA", "REPOSTERÍA", "CARNES"];
-    categories.forEach(n => delData.categories.push({ id: "st-" + Math.random(), name: n, location: "fuerza_publica" }));
-
-    // Add 20 products
-    for (let i = 0; i < 20; i++) {
-      delData.products.push({
-        id: "prod-st-" + i,
-        name: `Insumo Stress ${i}`,
-        category: categories[i % categories.length],
-        quantity: 100,
-        unit: "uds",
-        minStock: 10,
-        visible: true
-      });
-    }
-
-    // Add 10 users
-    for (let i = 0; i < 10; i++) {
-      delData.users.push({
-        id: "user-st-" + i,
-        email: `user${i}@stress.com`,
-        name: `Operador Stress ${i}`,
-        role: i === 0 ? "admin" : "cook",
-        isApproved: true,
-        delegationId: delId
-      });
-    }
-
-    // Simulate 100 movements
-    for (let i = 0; i < 100; i++) {
-      const prodIndex = Math.floor(Math.random() * 20);
-      const isOut = Math.random() > 0.3;
-      const qty = Math.floor(Math.random() * 5) + 1;
-      
-      const p = delData.products[prodIndex];
-      if (isOut && p.quantity < qty) continue;
-
-      p.quantity = isOut ? p.quantity - qty : p.quantity + qty;
-      delData.movements.push({
-        id: "mov-st-" + i,
-        productId: p.id,
-        productName: p.name,
-        type: isOut ? "out" : "in",
-        quantity: qty,
-        user: "Tester Bot",
-        timestamp: new Date().toISOString(),
-        note: "Prueba de carga masiva"
-      });
-    }
-
-    saveDelegationData(delId);
-    saveGlobalData();
-
-    res.json({ 
-      success: true, 
-      message: "Entorno de prueba de estrés recreado correctamente",
-      delegationId: delId,
-      usersCreated: 10,
-      movementsSimulated: 100
-    });
-  });
-
-  app.post("/api/admin/factory-reset", async (req, res) => {
-    const { isSuperAdmin } = getContext(req);
-    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
-
-    console.log("[FACTORY RESET] Triggered by master admin.");
-
-    // Reset global state
-    globalData.delegations = [];
-    globalData.users = [];
-    
-    // Clear in-memory delegations
-    Object.keys(dataByDelegation).forEach(key => delete dataByDelegation[key]);
-    loadedDelegations.clear();
-
-    // Persist emptiness
-    await saveGlobalData();
-    
-    res.json({ success: true, message: "Sistema reseteado a valores de fábrica. Se han eliminado todas las delegaciones y usuarios globales." });
-  });
-  
   // Trash Endpoints
   app.get("/api/trash", (req, res) => {
     const { data } = getContext(req);
@@ -1384,21 +939,10 @@ async function startServer() {
   });
 
   app.get("/api/db", (req, res) => {
-    const context = getContext(req);
-    const isLoaded = loadedDelegations.has(context.id);
-    
-    // If not loaded and using Firebase, explicitly tell the client to wait
-    if (!isLoaded && db) {
-      return res.status(202).json({ 
-        _isLoaded: false,
-        _isGlobalLoaded: isGlobalLoaded,
-        message: "Sincronizando con la nube..." 
-      });
-    }
-
+    const { data, id } = getContext(req);
     res.json({ 
-      ...context.data, 
-      _isLoaded: isLoaded,
+      ...data, 
+      _isLoaded: loadedDelegations.has(id),
       _isGlobalLoaded: isGlobalLoaded
     });
   });
@@ -1639,7 +1183,6 @@ async function startServer() {
     
     // Global Log
     const del = globalData.delegations.find((d: any) => d.id === id);
-    addGlobalLog("NUEVA_PETICION", `Pedido de ${request.userName} (${request.items.length} items)`, request.userName, id, del?.name);
 
     io.to(id).emit("notification", { 
       message: `${request.isUrgent ? '🚨 PEDIDO URGENTE: ' : 'Nuevo pedido: '}${request.userName}`, 
@@ -2347,15 +1890,8 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`[SERVER] Started successfully on port ${PORT}`);
-    console.log(`[INFO] Transport mode: websocket + polling`);
-  }).on("error", (err: any) => {
-    console.error("[FATAL] HTTP Server failed to listen:", err);
-    process.exit(1);
+    console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer().catch(err => {
-  console.error("FATAL: Server failed to start:", err);
-  process.exit(1);
-});
+startServer();

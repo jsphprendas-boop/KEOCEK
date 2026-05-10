@@ -54,172 +54,6 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-const isExpiringSoon = (dateStr: string) => {
-  if (!dateStr) return false;
-  const expiry = new Date(dateStr);
-  const now = new Date();
-  const diff = expiry.getTime() - now.getTime();
-  return diff > 0 && diff < (7 * 24 * 60 * 60 * 1000); // 7 days
-};
-
-const isExpired = (dateStr: string) => {
-  if (!dateStr) return false;
-  return new Date(dateStr) < new Date();
-};
-
-const ProductCard = React.memo(({ 
-  product, 
-  user, 
-  onDetailSelect, 
-  onToggleVisibility, 
-  onEdit, 
-  onDelete, 
-  onAdjustStock 
-}: { 
-  product: Product; 
-  user: User; 
-  onDetailSelect: (p: Product) => void;
-  onToggleVisibility: (p: Product) => void;
-  onEdit: (p: Product) => void;
-  onDelete: (id: string) => void;
-  onAdjustStock: (p: Product, type: "in" | "out") => void;
-}) => {
-  const expired = isExpired(product.expiryDate);
-  const expiringSoon = isExpiringSoon(product.expiryDate);
-  const stock = parseInt(product.quantity) || 0;
-  const progressPercent = Math.min((stock / 50) * 100, 100);
-
-  return (
-    <Card 
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-indigo-200 transition-all cursor-pointer group overflow-hidden flex flex-col h-full active:scale-[0.98]"
-      onClick={() => onDetailSelect(product)}
-    >
-      <div className="p-4 flex-1">
-        <div className="flex justify-between items-start mb-4">
-          <div className="min-w-0 pr-2">
-            <h4 className="font-bold text-slate-800 text-sm md:text-base leading-tight truncate group-hover:text-indigo-600 transition-colors">
-              {product.name}
-            </h4>
-            <Badge variant="outline" className="bg-slate-50 text-slate-400 border-slate-200 px-1.5 py-0 text-[9px] uppercase font-black mt-1 tracking-wider">
-              {product.category}
-            </Badge>
-          </div>
-          
-          {user.role !== "viewer" && (
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className={`h-7 w-7 rounded-lg ${product.isHidden ? 'text-amber-500 bg-amber-50' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-50'}`}
-                onClick={(e) => { e.stopPropagation(); onToggleVisibility(product); }}
-              >
-                {product.isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50"
-                onClick={(e) => { e.stopPropagation(); onEdit(product); }}
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger 
-                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 inline-flex items-center justify-center transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-3xl border-none shadow-2xl">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="text-xl font-bold tracking-tight">¿Eliminar artículo?</AlertDialogTitle>
-                    <AlertDialogDescription className="text-slate-500 font-medium pb-2">
-                      El artículo <strong className="text-slate-900 leading-relaxed font-black">{product.name}</strong> será enviado a la papelera de recuperación.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter className="gap-2">
-                    <AlertDialogCancel className="rounded-2xl font-bold border-slate-200">Mantener</AlertDialogCancel>
-                    <AlertDialogAction className="bg-red-600 hover:bg-red-700 rounded-2xl font-bold px-6 shadow-lg shadow-red-500/20" onClick={() => onDelete(product.id || '')}>
-                      Confirmar Eliminación
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex flex-col items-center justify-center group/stock">
-            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Existencia</span>
-            <div className="flex items-center gap-2">
-              {user.role !== "viewer" && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onAdjustStock(product, "out"); }}
-                  className="h-6 w-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-all font-bold"
-                >-</button>
-              )}
-              <span className="text-lg font-black text-indigo-600 min-w-[1.5rem] text-center font-mono">{product.quantity}</span>
-              {user.role !== "viewer" && (
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onAdjustStock(product, "in"); }}
-                  className="h-6 w-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-green-50 hover:text-green-500 hover:border-green-100 transition-all font-bold"
-                >+</button>
-              )}
-            </div>
-            <span className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{product.unit || 'uds'}</span>
-          </div>
-
-          <div className={`rounded-2xl p-3 border flex flex-col items-center justify-center transition-colors ${
-            expired ? 'bg-red-50 border-red-100' : 
-            expiringSoon ? 'bg-amber-50 border-amber-100 animate-pulse' : 
-            'bg-indigo-50/50 border-indigo-100'
-          }`}>
-            <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${
-              expired ? 'text-red-400' : expiringSoon ? 'text-amber-400' : 'text-indigo-400'
-            }`}>Vencimiento</span>
-            <span className={`text-[11px] font-black font-mono ${
-              expired ? 'text-red-600' : expiringSoon ? 'text-amber-600' : 'text-indigo-600'
-            }`}>
-              {product.expiryDate ? format(new Date(product.expiryDate), "dd/MM/yy") : "- - / - -"}
-            </span>
-            {expired ? (
-              <div className="mt-1 flex items-center gap-1 bg-red-600 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black uppercase ring-4 ring-red-50">
-                 <AlertTriangle className="w-2.5 h-2.5" /> Vencido
-              </div>
-            ) : expiringSoon ? (
-              <div className="mt-1 bg-amber-500 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black uppercase ring-4 ring-amber-50">
-                Pronto
-              </div>
-            ) : (
-              <div className="mt-1 text-[8px] text-green-500 font-black uppercase">Estable</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 pb-4">
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-400">
-             <span>Nivel de Stock</span>
-             <span>{Math.round(progressPercent)}%</span>
-          </div>
-          <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
-            <div 
-              className={`h-full rounded-full transition-all duration-1000 ease-out ${
-                expired ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]' : 
-                expiringSoon ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]' : 
-                'bg-gradient-to-r from-indigo-500 to-indigo-400'
-              }`} 
-              style={{ width: `${progressPercent}%` }} 
-            />
-          </div>
-        </div>
-      </div>
-    </Card>
-  );
-});
-
 interface InventorySectionProps {
   user: User;
   data: DBData;
@@ -315,7 +149,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   const filteredCategories = useMemo(() => {
     // Default to the first location if none selected, to avoid empty filter
     const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let cats = (data.categories || []).filter(c => (c.location || 'fuerza_publica') === currentLocation);
+    let cats = data.categories.filter(c => (c.location || 'fuerza_publica') === currentLocation);
     
     if (!searchTerm) return cats;
     return cats.filter(c => 
@@ -325,7 +159,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
 
   const filteredProducts = useMemo(() => {
     const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let prods = (data.products || []).filter(p => (p.location || 'fuerza_publica') === currentLocation);
+    let prods = data.products.filter(p => (p.location || 'fuerza_publica') === currentLocation);
     if (selectedCategory) {
       prods = prods.filter(p => p.category === selectedCategory);
     }
@@ -344,11 +178,6 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
     return [...current, ...archived].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [data.movements, data.pastHistories]);
 
-  const productHistory = useMemo(() => {
-    if (!selectedDetailProduct) return [];
-    return allMovements.filter(m => m.productId === selectedDetailProduct.id);
-  }, [allMovements, selectedDetailProduct]);
-
   const addCategory = async () => {
     if (!newCategoryName) return;
     try {
@@ -366,7 +195,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   };
 
   const deleteCategory = async (id: string, name: string) => {
-    const productsInCat = (data.products || []).filter(p => p.category === name && (p.location || 'fuerza_publica') === selectedLocation);
+    const productsInCat = data.products.filter(p => p.category === name && (p.location || 'fuerza_publica') === selectedLocation);
     if (productsInCat.length > 0) {
       if (!window.confirm(`Este bloque contiene ${productsInCat.length} artículos. ¿Estás seguro de que deseas eliminarlo?`)) return;
     } else {
@@ -542,6 +371,145 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   const isExpired = (dateStr: string) => {
     if (!dateStr) return false;
     return new Date(dateStr) < new Date();
+  };
+
+  const ProductCard = ({ product }: { product: Product }) => {
+    const expired = isExpired(product.expiryDate);
+    const expiringSoon = isExpiringSoon(product.expiryDate);
+    const stock = parseInt(product.quantity) || 0;
+    const progressPercent = Math.min((stock / 50) * 100, 100); // 50 as a visual "target" for the bar
+
+    return (
+      <Card 
+        className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-indigo-200 transition-all cursor-pointer group overflow-hidden flex flex-col h-full active:scale-[0.98]"
+        onClick={() => setSelectedDetailProduct(product)}
+      >
+        <div className="p-4 flex-1">
+          <div className="flex justify-between items-start mb-4">
+            <div className="min-w-0 pr-2">
+              <h4 className="font-bold text-slate-800 text-sm md:text-base leading-tight truncate group-hover:text-indigo-600 transition-colors">
+                {product.name}
+              </h4>
+              <Badge variant="outline" className="bg-slate-50 text-slate-400 border-slate-200 px-1.5 py-0 text-[9px] uppercase font-black mt-1 tracking-wider">
+                {product.category}
+              </Badge>
+            </div>
+            
+            {user.role !== "viewer" && (
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-x-2 group-hover:translate-x-0">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className={`h-7 w-7 rounded-lg ${product.isHidden ? 'text-amber-500 bg-amber-50' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-50'}`}
+                  onClick={(e) => { e.stopPropagation(); toggleProductVisibility(product); }}
+                >
+                  {product.isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50"
+                  onClick={(e) => { e.stopPropagation(); setEditingProduct(product); setIsEditingProduct(true); }}
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger 
+                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 inline-flex items-center justify-center transition-colors"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-3xl border-none shadow-2xl">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-xl font-bold tracking-tight">¿Eliminar artículo?</AlertDialogTitle>
+                      <AlertDialogDescription className="text-slate-500 font-medium pb-2">
+                        El artículo <strong className="text-slate-900 leading-relaxed font-black">{product.name}</strong> será enviado a la papelera de recuperación.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2">
+                      <AlertDialogCancel className="rounded-2xl font-bold border-slate-200">Mantener</AlertDialogCancel>
+                      <AlertDialogAction className="bg-red-600 hover:bg-red-700 rounded-2xl font-bold px-6 shadow-lg shadow-red-500/20" onClick={() => deleteProduct(product.id)}>
+                        Confirmar Eliminación
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {/* Stock Area */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-100 flex flex-col items-center justify-center group/stock">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Existencia</span>
+              <div className="flex items-center gap-2">
+                {user.role !== "viewer" && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); openStockAdjustment(product, "out"); }}
+                    className="h-6 w-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-all font-bold"
+                  >-</button>
+                )}
+                <span className="text-lg font-black text-indigo-600 min-w-[1.5rem] text-center font-mono">{product.quantity}</span>
+                {user.role !== "viewer" && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); openStockAdjustment(product, "in"); }}
+                    className="h-6 w-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-green-50 hover:text-green-500 hover:border-green-100 transition-all font-bold"
+                  >+</button>
+                )}
+              </div>
+              <span className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">{product.unit || 'uds'}</span>
+            </div>
+
+            {/* Expiry Area */}
+            <div className={`rounded-2xl p-3 border flex flex-col items-center justify-center transition-colors ${
+              expired ? 'bg-red-50 border-red-100' : 
+              expiringSoon ? 'bg-amber-50 border-amber-100 animate-pulse' : 
+              'bg-indigo-50/50 border-indigo-100'
+            }`}>
+              <span className={`text-[9px] font-black uppercase tracking-widest mb-1 ${
+                expired ? 'text-red-400' : expiringSoon ? 'text-amber-400' : 'text-indigo-400'
+              }`}>Vencimiento</span>
+              <span className={`text-[11px] font-black font-mono ${
+                expired ? 'text-red-600' : expiringSoon ? 'text-amber-600' : 'text-indigo-600'
+              }`}>
+                {product.expiryDate ? format(new Date(product.expiryDate), "dd/MM/yy") : "- - / - -"}
+              </span>
+              {expired ? (
+                <div className="mt-1 flex items-center gap-1 bg-red-600 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black uppercase ring-4 ring-red-50">
+                   <AlertTriangle className="w-2.5 h-2.5" /> Vencido
+                </div>
+              ) : expiringSoon ? (
+                <div className="mt-1 bg-amber-500 text-[8px] text-white px-1.5 py-0.5 rounded-full font-black uppercase ring-4 ring-amber-50">
+                  Pronto
+                </div>
+              ) : (
+                <div className="mt-1 text-[8px] text-green-500 font-black uppercase">Estable</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 pb-4">
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-[8px] font-black uppercase tracking-widest text-slate-400">
+               <span>Nivel de Stock</span>
+               <span>{Math.round(progressPercent)}%</span>
+            </div>
+            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden p-0.5">
+              <div 
+                className={`h-full rounded-full transition-all duration-1000 ease-out ${
+                  expired ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]' : 
+                  expiringSoon ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]' : 
+                  'bg-gradient-to-r from-indigo-500 to-indigo-400'
+                }`} 
+                style={{ width: `${progressPercent}%` }} 
+              />
+            </div>
+          </div>
+        </div>
+      </Card>
+    );
   };
 
   return (
@@ -805,7 +773,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                       {category.name}
                     </CardTitle>
                     <div className="flex items-center gap-1 text-[10px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                      {(data.products || []).filter(p => p.category === category.name && (p.location || 'fuerza_publica') === selectedLocation).length} Artículos
+                      {data.products.filter(p => p.category === category.name && (p.location || 'fuerza_publica') === selectedLocation).length} Artículos
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
@@ -831,16 +799,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
             {filteredProducts.map(product => (
-              <ProductCard 
-                key={product.id} 
-                product={product} 
-                user={user}
-                onDetailSelect={setSelectedDetailProduct}
-                onToggleVisibility={toggleProductVisibility}
-                onEdit={(p) => { setEditingProduct(p); setIsEditingProduct(true); }}
-                onDelete={deleteProduct}
-                onAdjustStock={openStockAdjustment}
-              />
+              <ProductCard key={product.id} product={product} />
             ))}
 
             {filteredProducts.length === 0 && (
@@ -855,20 +814,11 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
         <div className="space-y-4">
           {/* Mobile All-Products List */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-            {(data.products || []).filter(p => 
+            {data.products.filter(p => 
               p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
               p.category.toLowerCase().includes(searchTerm.toLowerCase())
             ).map(product => (
-              <ProductCard 
-                key={product.id} 
-                product={product} 
-                user={user}
-                onDetailSelect={setSelectedDetailProduct}
-                onToggleVisibility={toggleProductVisibility}
-                onEdit={(p) => { setEditingProduct(p); setIsEditingProduct(true); }}
-                onDelete={deleteProduct}
-                onAdjustStock={openStockAdjustment}
-              />
+              <ProductCard key={product.id} product={product} />
             ))}
           </div>
 
@@ -885,7 +835,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(data.products || []).filter(p => 
+                {data.products.filter(p => 
                   p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                   p.category.toLowerCase().includes(searchTerm.toLowerCase())
                 ).map(product => (
@@ -1129,8 +1079,8 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
 
                 <ScrollArea className="flex-1">
                   <div className="p-6 md:p-8 space-y-4">
-                    {productHistory.length > 0 ? (
-                      productHistory.map(move => (
+                    {allMovements.filter(m => m.productId === selectedDetailProduct.id).length > 0 ? (
+                      allMovements.filter(m => m.productId === selectedDetailProduct.id).map(move => (
                         <div key={move.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl hover:border-indigo-100 hover:bg-indigo-50/20 transition-all group/move">
                           <div className="flex items-center gap-4">
                              <div className={`p-2.5 rounded-xl ${
@@ -1183,7 +1133,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                   <span className="font-semibold text-slate-800 text-sm">{loc.name}</span>
                   <Button variant="ghost" size="sm" onClick={async () => {
                      // Frontend Safety Check
-                     const productsInLoc = (data.products || []).filter(p => (p.location || 'fuerza_publica') === loc.id);
+                     const productsInLoc = data.products.filter(p => (p.location || 'fuerza_publica') === loc.id);
                      if (productsInLoc.length > 0) {
                         toast.error(`No se puede eliminar: El inventario "${loc.name}" contiene ${productsInLoc.length} artículos. Debe moverlos o eliminarlos primero.`);
                         return;

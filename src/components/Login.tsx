@@ -188,21 +188,7 @@ export default function Login({
           </CardDescription>
         </CardHeader>
         <CardContent className="p-6 md:p-8">
-            <form onSubmit={handleLogin} className="space-y-4 md:space-y-6">
-              <div className="space-y-2">
-                <Label className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-slate-400">Seleccionar Intendencia / Delegación</Label>
-                <select 
-                  value={currentDelegationId}
-                  onChange={(e) => onDelegationChange(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-2xl h-12 md:h-14 px-4 text-xs md:text-sm font-bold text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
-                >
-                  {allDelegations.map(del => (
-                    <option key={del.id} value={del.id}>{del.name}</option>
-                  ))}
-                </select>
-                <p className="text-[9px] text-slate-400 italic px-1 font-medium">Elija la delegación a la que pertenece antes de ingresar.</p>
-              </div>
-
+             <form onSubmit={handleLogin} className="space-y-4 md:space-y-6">
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-slate-400">Correo Electrónico</Label>

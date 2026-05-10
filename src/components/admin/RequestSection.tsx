@@ -37,10 +37,9 @@ import { maskEmail } from "../../lib/helpers";
 interface RequestSectionProps {
   user: UserType;
   data: DBData;
-  onGlobalRefresh?: () => void;
 }
 
-export default function RequestSection({ user, data, onGlobalRefresh }: RequestSectionProps) {
+export default function RequestSection({ user, data }: RequestSectionProps) {
   const [expandedDates, setExpandedDates] = React.useState<Set<string>>(new Set());
   const [selectedRoles, setSelectedRoles] = React.useState<Record<string, string>>({});
   
@@ -66,7 +65,7 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   };
 
   const pendingRequests = useMemo(() => {
-    let filtered = (data.requests || []).filter(r => r.status === "pending");
+    let filtered = data.requests.filter(r => r.status === "pending");
     
     if (filterSearch) {
       const search = filterSearch.toLowerCase();
@@ -94,7 +93,7 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   }, [data.requests, filterSearch, filterUser, filterUrgent]);
 
   const pendingUsers = useMemo(() => 
-    (data.users || []).filter(u => !u.isApproved)
+    data.users.filter(u => !u.isApproved)
   , [data.users]);
 
   const isMasterAdmin = user.email === "jsphprendas@gmail.com";
@@ -146,13 +145,13 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   }, [data.requests, data.pastHistories, filterSearch, filterStatus, filterUser, filterUrgent]);
 
   const cooks = useMemo(() => {
-    const list = (data.users || []).filter(u => u.role !== "viewer");
+    const list = data.users.filter(u => u.role !== "viewer");
     return list;
   }, [data.users]);
 
   const availableProducts = useMemo(() => {
     if (!itemSearchTerm) return [];
-    return (data.products || []).filter(p => 
+    return data.products.filter(p => 
       p.name.toLowerCase().includes(itemSearchTerm.toLowerCase()) &&
       !editedItems.some(ei => ei.productId === p.id)
     ).slice(0, 5);
@@ -188,7 +187,6 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
       
       await apiFetch(`/api/requests/${id}/${action}`, { method: "POST" });
       toast.success(action === 'confirm' ? "Pedido confirmado y stock retirado" : "Pedido rechazado");
-      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message || "Error al procesar acción");
     }
@@ -202,7 +200,6 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
         body: JSON.stringify({ role })
       });
       toast.success(action === 'approve' ? `Usuario aprobado como ${role === "cook" ? "Cocinero" : role === "admin" ? "Administrador" : "Gestión"}` : "Registro denegado");
-      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message || "Error al procesar usuario");
     }

@@ -54,10 +54,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 interface SupportInventorySectionProps {
   user: User;
   data: DBData;
-  onGlobalRefresh?: () => void;
 }
 
-export default function SupportInventorySection({ user, data, onGlobalRefresh }: SupportInventorySectionProps) {
+export default function SupportInventorySection({ user, data }: SupportInventorySectionProps) {
   const [activeTab, setActiveTab] = useState("registro");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState("");
@@ -171,7 +170,6 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
       });
       if (res.ok) {
         toast.success(`Inventario de apoyo guardado para ${format(selectedDate, "PPP", { locale: es })}`);
-        if (onGlobalRefresh) onGlobalRefresh();
       }
     } catch (e) {
       toast.error("Error al guardar registro");
@@ -187,7 +185,6 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
       });
       if (res.ok) {
         toast.success("Registro eliminado");
-        if (onGlobalRefresh) onGlobalRefresh();
         if (date === dateStr) {
           setLocalCounts({});
           setLocalNote("");
@@ -211,7 +208,6 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
         setNewCategoryName("");
         setIsAddingCategory(false);
         toast.success("Bloque creado");
-        if (onGlobalRefresh) onGlobalRefresh();
       }
     } catch (e) { toast.error("Error"); }
   };
@@ -219,10 +215,7 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
   const deleteCategory = async (id: string) => {
     try {
       const res = await fetch(`/api/support-categories/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Bloque eliminado");
-        if (onGlobalRefresh) onGlobalRefresh();
-      }
+      if (res.ok) toast.success("Bloque eliminado");
     } catch (e) { toast.error("Error"); }
   };
 
@@ -238,7 +231,6 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
         setNewProduct({ name: "", category: "", unit: "uds" });
         setIsAddingProduct(false);
         toast.success("Producto creado");
-        if (onGlobalRefresh) onGlobalRefresh();
       }
     } catch (e) { toast.error("Error"); }
   };
@@ -246,10 +238,7 @@ export default function SupportInventorySection({ user, data, onGlobalRefresh }:
   const deleteProduct = async (id: string) => {
     try {
       const res = await fetch(`/api/support-products/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Producto eliminado");
-        if (onGlobalRefresh) onGlobalRefresh();
-      }
+      if (res.ok) toast.success("Producto eliminado");
     } catch (e) { toast.error("Error"); }
   };
 

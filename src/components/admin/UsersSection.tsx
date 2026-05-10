@@ -50,23 +50,12 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
   const [isUpdating, setIsUpdating] = useState(false);
 
   React.useEffect(() => {
-    if (isSuperAdmin) {
-      const fetchAllUsers = async () => {
-        try {
-          const allUsers = await apiFetch("/api/admin/all-users");
-          setGlobalUsers(allUsers);
-        } catch (e) {
-          console.error("Error fetching global users", e);
-        }
-      };
-      fetchAllUsers();
-    }
-  }, [isSuperAdmin, data.users]);
+    // No multi-delegation fetching needed
+  }, [data.users]);
 
   const activeUsers = useMemo(() => {
-    const list = showGlobalUsers ? globalUsers : (data.users || []);
-    return list.filter(u => u.id !== "admin-main");
-  }, [data.users, globalUsers, showGlobalUsers]);
+    return data.users.filter(u => u.id !== "admin-main");
+  }, [data.users]);
 
   const isMasterAdmin = user.email === "jsphprendas@gmail.com";
 
@@ -113,19 +102,12 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
     }
   };
 
-  const handleApprove = async (userId: string, role?: string, delegationId?: string) => {
+  const handleApprove = async (userId: string, role?: string) => {
     try {
-      if (isSuperAdmin && (role || delegationId)) {
-        await apiFetch(`/api/admin/users/${userId}`, { 
-          method: "PUT",
-          body: JSON.stringify({ isApproved: true, role, targetDelegationId: delegationId })
-        });
-      } else {
-        await apiFetch(`/api/users/${userId}/approve`, {
-          method: "POST",
-          body: JSON.stringify(role ? { role } : {})
-        });
-      }
+      await apiFetch(`/api/users/${userId}/approve`, {
+        method: "POST",
+        body: JSON.stringify(role ? { role } : {})
+      });
       toast.success("Usuario aprobado exitosamente");
       setUserToApprove(null);
       if (onGlobalRefresh) onGlobalRefresh();
@@ -138,21 +120,10 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
     if (!userToEdit) return;
     setIsUpdating(true);
     try {
-      if (isSuperAdmin && showGlobalUsers) {
-        await apiFetch(`/api/admin/users/${userToEdit.id}`, {
-          method: "PUT",
-          body: JSON.stringify({ 
-            name: `${editFirstName} ${editLastName}`.trim(),
-            password: editPassword,
-            targetDelegationId: userToEdit.delegationId
-          })
-        });
-      } else {
-        await apiFetch(`/api/users/${userToEdit.id}/update-profile`, {
-          method: "POST",
-          body: JSON.stringify({ firstName: editFirstName, lastName: editLastName })
-        });
-      }
+      await apiFetch(`/api/users/${userToEdit.id}/update-profile`, {
+        method: "POST",
+        body: JSON.stringify({ firstName: editFirstName, lastName: editLastName })
+      });
       toast.success("Información actualizada correctamente");
       setUserToEdit(null);
       if (onGlobalRefresh) onGlobalRefresh();
@@ -183,11 +154,7 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
   const confirmRemoveUser = async () => {
     if (!userToDelete) return;
     try {
-      if (isSuperAdmin && userToDelete.delegationId) {
-        await apiFetch(`/api/admin/users/${userToDelete.delegationId}/${userToDelete.id}`, { method: "DELETE" });
-      } else {
-        await apiFetch(`/api/users/${userToDelete.id}`, { method: "DELETE" });
-      }
+      await apiFetch(`/api/users/${userToDelete.id}`, { method: "DELETE" });
       toast.success("Usuario eliminado exitosamente");
       setUserToDelete(null);
       if (onGlobalRefresh) onGlobalRefresh();
@@ -210,16 +177,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
           <p className="text-[10px] md:text-xs text-slate-500">Administre los accesos y registros del personal operativo</p>
         </div>
         <div className="flex items-center gap-2">
-          {isSuperAdmin && (
-            <Button
-              variant={showGlobalUsers ? "default" : "outline"}
-              onClick={() => setShowGlobalUsers(!showGlobalUsers)}
-              className={`h-9 md:h-10 rounded-xl px-4 font-bold text-[10px] md:text-xs uppercase tracking-widest ${showGlobalUsers ? 'bg-purple-600 hover:bg-purple-700' : 'border-purple-100 text-purple-600 hover:bg-purple-50'}`}
-            >
-              <Building2 className="w-3.5 h-3.5 mr-2" />
-              {showGlobalUsers ? "Ver Solo Esta Sede" : "Ver Global (Todas Sedes)"}
-            </Button>
-          )}
         </div>
       </div>
 
@@ -280,9 +237,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
                 >
                   {userItem.isApproved ? 'Activo' : 'Pendiente'}
                 </Badge>
-                {showGlobalUsers && userItem.delegationName && (
-                  <span className="text-[7px] font-black uppercase text-purple-500 mt-1 truncate max-w-[80px]">{userItem.delegationName}</span>
-                )}
               </div>
             </CardHeader>
             <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
@@ -326,17 +280,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2">
-                       {isSuperAdmin && (
-                        <div className="flex flex-col gap-2">
-                          <Button 
-                            variant="ghost"
-                            className="h-8 md:h-9 text-[10px] md:text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 w-full rounded-xl"
-                            onClick={() => setUserToTransfer({ id: userItem.id, name: userItem.name, currentDelegationId: userItem.delegationId || "default" })}
-                          >
-                            <UserIcon className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /> Transferir Sede
-                          </Button>
-                        </div>
-                      )}
                       <Button 
                         variant="outline" 
                         className="h-8 md:h-9 text-[10px] md:text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 w-full rounded-xl"
@@ -403,7 +346,7 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
               Cancelar
             </Button>
             <Button 
-              onClick={() => userToApprove && handleApprove(userToApprove.id, approveRole, approveDelegation)} 
+              onClick={() => userToApprove && handleApprove(userToApprove.id, approveRole)} 
               className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/20 rounded-xl h-12 font-bold uppercase tracking-widest text-xs"
             >
               Aprobar Acceso

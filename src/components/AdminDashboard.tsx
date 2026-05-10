@@ -89,8 +89,8 @@ export default React.memo(function AdminDashboard({
   }, [user, isSuperAdmin, isReadOnly]);
 
   const pendingCount = useMemo(() => {
-    const stockRequests = (data.requests || []).filter(r => r.status === "pending").length;
-    const userRequests = (data.users || []).filter(u => !u.isApproved).length;
+    const stockRequests = data.requests.filter(r => r.status === "pending").length;
+    const userRequests = data.users.filter(u => !u.isApproved).length;
     return stockRequests + userRequests;
   }, [data.requests, data.users]);
 
@@ -326,57 +326,6 @@ export default React.memo(function AdminDashboard({
         </div>
 
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto no-scrollbar">
-          {/* Delegation Selector ONLY for SuperAdmin */}
-          {isSuperAdmin && (
-            <div className="mb-6 px-1">
-              <div className={`text-[10px] font-black uppercase tracking-[0.2em] mb-2 px-1 ${isMasterAdmin ? 'text-amber-500/80 shadow-[0_0_10px_rgba(255,191,0,0.2)]' : 'text-slate-500'}`}>
-                Jurisdicción Actual
-              </div>
-              <div className="relative group">
-                <Building2 className={`absolute left-3 top-2.5 w-4 h-4 ${isMasterAdmin ? 'text-amber-500' : 'text-slate-400'} z-10 transition-transform group-hover:scale-110`} />
-                <select 
-                  value={delegationId}
-                  onChange={(e) => onDelegationChange(e.target.value)}
-                  className={`w-full ${isMasterAdmin ? 'bg-black/50 border-amber-500/30 text-amber-500 shadow-[0_0_15px_rgba(255,191,0,0.1)]' : 'bg-slate-800 border-white/10 text-white'} text-xs font-black rounded-xl pl-10 pr-4 py-3 border focus:ring-2 ${isMasterAdmin ? 'focus:ring-amber-500' : 'focus:ring-indigo-500'} transition-all outline-none appearance-none cursor-pointer relative uppercase tracking-wider h-11`}
-                >
-                  <optgroup label="Instancias Activas" className={isMasterAdmin ? 'bg-black text-amber-500' : 'bg-slate-900 text-white'}>
-                    {allDelegations.map(del => (
-                      <option key={del.id} value={del.id} className="py-2">
-                         {del.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                </select>
-                <div className={`absolute right-3 top-3.5 w-0 h-0 border-l-[4px] border-l-transparent border-r-[4px] border-r-transparent border-t-[4px] ${isMasterAdmin ? 'border-t-amber-500' : 'border-t-slate-400'} pointer-events-none`} />
-              </div>
-              
-              {isSuperAdmin && (
-                <div className="mt-4 px-1">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setIsReadOnly(!isReadOnly)}
-                    className={`w-full justify-between h-9 px-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
-                      isReadOnly 
-                        ? 'bg-amber-100 border-amber-300 text-amber-700 hover:bg-amber-200' 
-                        : 'bg-slate-800/50 border-white/5 text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                       {isReadOnly ? <LogOut className="w-3 h-3 rotate-180" /> : <Search className="w-3 h-3" />}
-                       {isReadOnly ? 'Modo Observador' : 'Modo Control'}
-                    </div>
-                    <div className={`w-2 h-2 rounded-full ${isReadOnly ? 'bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.5)]' : 'bg-slate-600'}`} />
-                  </Button>
-                </div>
-              )}
-
-              <div className={`mt-1.5 px-1 text-[8px] font-bold uppercase tracking-widest ${isMasterAdmin ? 'text-amber-500/40' : 'text-slate-500'}`}>
-                Cambio dinámico de entorno
-              </div>
-            </div>
-          )}
-
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2 pt-2">Administración</div>
           <SidebarItem 
             icon={<Package className="w-5 h-5" />} 
@@ -454,19 +403,6 @@ export default React.memo(function AdminDashboard({
             isGolden={isMasterAdmin}
             customActiveClass={activeTab === "recovery" ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20" : ""}
           />
-
-          {isSuperAdmin && (
-            <>
-              <div className="pt-6 text-[10px] font-semibold text-purple-400 uppercase tracking-wider mb-2 px-2">Super Admin Ops</div>
-              <SidebarItem 
-                icon={<Building2 className="w-5 h-5" />} 
-                label="Gestionar Intendencias" 
-                active={activeTab === "global-management"} 
-                onClick={() => handleTabChange("global-management")} 
-                customActiveClass="bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-              />
-            </>
-          )}
         </nav>
         
         <div className="p-4 border-t border-white/10 shrink-0 flex flex-col gap-2">
@@ -580,26 +516,15 @@ export default React.memo(function AdminDashboard({
 
                 {activeTab === "inventory" && <InventorySection user={effectiveUser} data={data} searchTerm={searchTerm} onExportAll={handleExportAllData} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "inventory-history" && <InventoryHistorySection user={effectiveUser} data={data} />}
-                {activeTab === "accounting" && (
-                   <AccountingSection 
-                     user={effectiveUser} 
-                     data={data} 
-                     searchTerm={searchTerm} 
-                     onExportAll={handleExportAllData}
-                     onGlobalRefresh={onGlobalRefresh}
-                   />
-                )}
-                {activeTab === "notifications" && <RequestSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
-                {activeTab === "requests-history" && (
-                  <RequestsHistorySection 
+                {activeTab === "accounting" && 
+                  <AccountingSection 
                     user={effectiveUser} 
                     data={data} 
+                    searchTerm={searchTerm} 
                     onExportAll={handleExportAllData}
+                    onGlobalRefresh={onGlobalRefresh}
                   />
-                )}
-                {activeTab === "calendar" && <CalendarSection user={effectiveUser} data={data} />}
-                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
-                {activeTab === "gas-reports" && <GasReportsSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
+                }
                 {activeTab === "users" && (
                   <UsersSection 
                     user={effectiveUser} 
@@ -609,15 +534,18 @@ export default React.memo(function AdminDashboard({
                     allDelegations={allDelegations}
                   />
                 )}
-                {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
-                {activeTab === "global-management" && isSuperAdmin && (
-                  <GlobalManagementSection 
-                    user={user} 
-                    allDelegations={allDelegations} 
-                    onDelegationChange={onDelegationChange} 
-                    onGlobalRefresh={onGlobalRefresh}
+                {activeTab === "notifications" && <RequestSection user={effectiveUser} data={data} />}
+                {activeTab === "requests-history" && 
+                  <RequestsHistorySection 
+                    user={effectiveUser} 
+                    data={data} 
+                    onExportAll={handleExportAllData}
                   />
-                )}
+                }
+                {activeTab === "calendar" && <CalendarSection user={effectiveUser} data={data} />}
+                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} />}
+                {activeTab === "gas-reports" && <GasReportsSection reports={data.gasReports || []} user={effectiveUser} />}
+                {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} />}
               </motion.div>
             </AnimatePresence>
           </div>

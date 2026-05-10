@@ -6,17 +6,15 @@ interface Props {
 
 interface State {
   hasError: boolean;
-  error?: Error | null;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   public state: State = {
-    hasError: false,
-    error: null
+    hasError: false
   };
 
-  public static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+  public static getDerivedStateFromError(_: Error): State {
+    return { hasError: true };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -29,11 +27,6 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="flex flex-col items-center justify-center h-screen p-4 text-center">
             <h1 className="text-2xl font-bold">Algo salió mal.</h1>
             <p className="mt-2 text-gray-600">Por favor, recarga la página o contacta al soporte.</p>
-            {this.state.error && (
-              <pre className="mt-4 p-4 bg-red-50 text-red-800 text-xs text-left overflow-auto max-w-full">
-                {this.state.error.stack || this.state.error.message}
-              </pre>
-            )}
         </div>
       );
     }

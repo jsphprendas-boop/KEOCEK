@@ -168,21 +168,17 @@ export default React.memo(function CookDashboard({ user, data, onLogout, delegat
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const filteredCategories = useMemo(() => {
-    return (data.categories || []).filter(c => (c.location || 'fuerza_publica') === selectedLocation);
+    return data.categories.filter(c => (c.location || 'fuerza_publica') === selectedLocation);
   }, [data.categories, selectedLocation]);
 
   const filteredProducts = useMemo(() => {
-    if (!data.products) return [];
     let prods = data.products.filter(p => !p.isHidden && (p.location || 'fuerza_publica') === selectedLocation);
     if (selectedCategory) {
       prods = prods.filter(p => p.category === selectedCategory);
     }
-    const searchLower = searchTerm.toLowerCase().trim();
-    if (!searchLower) return prods;
-    
     return prods.filter(p => 
-      p.name.toLowerCase().includes(searchLower) ||
-      p.category.toLowerCase().includes(searchLower)
+      p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.category.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [data.products, searchTerm, selectedCategory, selectedLocation]);
 
@@ -273,13 +269,13 @@ export default React.memo(function CookDashboard({ user, data, onLogout, delegat
     const userEmail = String(user.email || "").toLowerCase().trim();
     const userNameLower = String(user.name || "").toLowerCase().trim();
     
-    // Performance optimization: limit history scan or use a more efficient filter
-    // Only search in the last few histories if needed, or keep the full scan but optimized
-    for (const history of data.pastHistories) {
+    for (let i = 0; i < data.pastHistories.length; i++) {
+      const history = data.pastHistories[i];
       const hReqs = history.requests;
-      if (Array.isArray(hReqs)) {
-        for (const req of hReqs) {
-          if (!req?.id) continue;
+      if (hReqs && Array.isArray(hReqs)) {
+        for (let j = 0; j < hReqs.length; j++) {
+          const req = hReqs[j];
+          if (!req || !req.id) continue;
           
           const reqNameLower = String(req.userName || "").toLowerCase().trim();
           const reqEmail = String((req as any).userEmail || "").toLowerCase().trim();
@@ -302,12 +298,14 @@ export default React.memo(function CookDashboard({ user, data, onLogout, delegat
   }, [data.pastHistories, user.id, user.email, user.name]);
 
   const userRequests = useMemo(() => {
+    if (!data.requests || !Array.isArray(data.requests)) return pastUserRequests;
+    
     const userId = user.id;
     const userEmail = String(user.email || "").toLowerCase().trim();
     const userNameLower = String(user.name || "").toLowerCase().trim();
     
-    const currentRequests = (data.requests || []).filter(req => {
-      if (!req?.id) return false;
+    const currentRequests = data.requests.filter(req => {
+      if (!req || !req.id) return false;
       const reqNameLower = String(req.userName || "").toLowerCase().trim();
       const reqEmail = String((req as any).userEmail || "").toLowerCase().trim();
       
@@ -365,6 +363,7 @@ export default React.memo(function CookDashboard({ user, data, onLogout, delegat
     if (!day) return [];
     try {
       const dateKey = format(day, "yyyy-MM-dd");
+      console.log("Checking date:", dateKey, "Requests:", requestsByDateMap[dateKey]);
       return requestsByDateMap[dateKey] || [];
     } catch (e) {
       return [];

@@ -1,5 +1,5 @@
 import React from "react";
-import { GasReport, User, DBData } from "../../types";
+import { GasReport, User } from "../../types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
@@ -9,21 +9,17 @@ import { exportToExcel, exportToPDF } from "../../lib/exportUtils";
 import { toast } from "sonner";
 
 interface GasReportsSectionProps {
+  reports: GasReport[];
   user: User;
-  data: DBData;
-  onGlobalRefresh?: () => void;
 }
 
-export default function GasReportsSection({ user, data, onGlobalRefresh }: GasReportsSectionProps) {
-  const reports = data.gasReports || [];
-
+export default function GasReportsSection({ reports, user }: GasReportsSectionProps) {
   const handleDeleteReport = async (reportId: string) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar este reporte de gas? Se enviará a la papelera.")) return;
     try {
       const res = await fetch(`/api/gas-reports/${reportId}`, { method: "DELETE" });
       if (res.ok) {
         toast.success("Reporte eliminado");
-        if (onGlobalRefresh) onGlobalRefresh();
       } else {
         toast.error("Error al eliminar el reporte");
       }

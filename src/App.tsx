@@ -44,25 +44,12 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<{message: string, type?: string, timestamp: number}[]>([]);
-  const [currentDelegationId, setCurrentDelegationId] = useState<string>(() => {
-    return localStorage.getItem("ia_delegation_id") || "default";
-  });
+  const [currentDelegationId, setCurrentDelegationId] = useState<string>("default");
 
   // Handle delegation change
   const handleDelegationChange = (id: string) => {
-    // Only allow if no user (login screen) or if super admin
-    if (user && !isSuperAdminEmail(user.email)) {
-      console.warn("Unauthorized delegation change attempt blocked");
-      return;
-    }
-    
-    console.log("Switching to delegation:", id);
-    setCurrentDelegationId(id);
-    localStorage.setItem("ia_delegation_id", id);
-    setLoadError(null);
-    // Reload data for new delegation
-    loadData(id);
-    socket.emit(socketEvents.JOIN_DELEGATION, id);
+    // Single delegation mode: always default
+    setCurrentDelegationId("default");
   };
 
   // We need a ref for the current user to avoid closure staleness in socket listeners
@@ -166,7 +153,6 @@ export default function App() {
 
     // Initial fetch
     loadData(currentDelegationId);
-    fetchGlobalInfo();
 
     return () => {
       socket.off(socketEvents.DB_UPDATE);
