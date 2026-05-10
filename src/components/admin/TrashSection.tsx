@@ -49,9 +49,10 @@ import { maskEmail } from "../../lib/helpers";
 interface TrashSectionProps {
   user: UserType;
   data: DBData;
+  onGlobalRefresh?: () => void;
 }
 
-export default function TrashSection({ user, data }: TrashSectionProps) {
+export default function TrashSection({ user, data, onGlobalRefresh }: TrashSectionProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<string>("product");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -109,6 +110,7 @@ export default function TrashSection({ user, data }: TrashSectionProps) {
       
       toast.success(`${targetIds.length} elementos restaurados correctamente`);
       setSelectedIds(new Set());
+      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -121,6 +123,7 @@ export default function TrashSection({ user, data }: TrashSectionProps) {
       const res = await fetch(`/api/trash/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Error al eliminar");
       toast.success("Eliminado permanentemente");
+      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -132,6 +135,7 @@ export default function TrashSection({ user, data }: TrashSectionProps) {
       if (!res.ok) throw new Error("Error al vaciar papelera");
       toast.success("Papelera vaciada");
       setSelectedIds(new Set());
+      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message);
     }

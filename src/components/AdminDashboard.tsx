@@ -580,15 +580,26 @@ export default React.memo(function AdminDashboard({
 
                 {activeTab === "inventory" && <InventorySection user={effectiveUser} data={data} searchTerm={searchTerm} onExportAll={handleExportAllData} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "inventory-history" && <InventoryHistorySection user={effectiveUser} data={data} />}
-                {activeTab === "accounting" && 
-                  <AccountingSection 
+                {activeTab === "accounting" && (
+                   <AccountingSection 
+                     user={effectiveUser} 
+                     data={data} 
+                     searchTerm={searchTerm} 
+                     onExportAll={handleExportAllData}
+                     onGlobalRefresh={onGlobalRefresh}
+                   />
+                )}
+                {activeTab === "requests" && <RequestSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
+                {activeTab === "requests-history" && (
+                  <RequestsHistorySection 
                     user={effectiveUser} 
                     data={data} 
-                    searchTerm={searchTerm} 
                     onExportAll={handleExportAllData}
-                    onGlobalRefresh={onGlobalRefresh}
                   />
-                }
+                )}
+                {activeTab === "calendar" && <CalendarSection user={effectiveUser} data={data} />}
+                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
+                {activeTab === "gas-reports" && <GasReportsSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "users" && (
                   <UsersSection 
                     user={effectiveUser} 
@@ -598,23 +609,13 @@ export default React.memo(function AdminDashboard({
                     allDelegations={allDelegations}
                   />
                 )}
-                {activeTab === "notifications" && <RequestSection user={effectiveUser} data={data} />}
-                {activeTab === "requests-history" && 
-                  <RequestsHistorySection 
-                    user={effectiveUser} 
-                    data={data} 
-                    onExportAll={handleExportAllData}
-                  />
-                }
-                {activeTab === "calendar" && <CalendarSection user={effectiveUser} data={data} />}
-                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} />}
-                {activeTab === "gas-reports" && <GasReportsSection reports={data.gasReports || []} user={effectiveUser} />}
-                {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} />}
+                {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "global-management" && isSuperAdmin && (
                   <GlobalManagementSection 
-                    user={effectiveUser}
-                    onDelegationCreated={onGlobalRefresh} 
-                    delegations={allDelegations} 
+                    user={user} 
+                    allDelegations={allDelegations} 
+                    onDelegationChange={onDelegationChange} 
+                    onGlobalRefresh={onGlobalRefresh}
                   />
                 )}
               </motion.div>

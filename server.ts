@@ -288,12 +288,16 @@ async function startServer() {
     const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
     const isSuperAdmin = superAdmins.some((email: string) => typeof email === 'string' && email.toLowerCase() === userEmail);
     const delData = dataByDelegation[delId];
+    
+    const userInDelegation = delData.users.find((u: any) => u.email === userEmail);
+    const isAdmin = isSuperAdmin || (userInDelegation && userInDelegation.role === "admin" && userInDelegation.isApproved);
 
     return { 
       id: delId, 
       data: delData,
       userEmail,
       isSuperAdmin,
+      isAdmin,
       save: () => saveDelegationData(delId)
     };
   };
@@ -517,36 +521,34 @@ async function startServer() {
 
     const newDel = {
       id: "del-" + Date.now(),
-      name: name || "Nueva Delegación",
-      masterAdminEmail: (masterAdminEmail || "").toLowerCase(),
-      masterAdminPassword: masterAdminPassword || "",
+      name: (name || "Nueva Delegación").trim(),
+      masterAdminEmail: (masterAdminEmail || "").toLowerCase().trim(),
+      masterAdminPassword: (masterAdminPassword || "").trim(),
       createdAt: new Date().toISOString()
     };
     
+    if (!newDel.masterAdminEmail) return res.status(400).json({ error: "El correo del administrador maestro es obligatorio" });
+
     // Initialize standard data structure for this delegation
     dataByDelegation[newDel.id] = getDefaultData(newDel.id);
-    loadedDelegations.add(newDel.id); // NEW: Mark as loaded so it can be saved
+    loadedDelegations.add(newDel.id); 
     
     // Add the master admin as the first official user of this delegation
-    let masterUser = null;
-    // Look for the user globally
-    for (const delId of Object.keys(dataByDelegation)) {
-      const found = dataByDelegation[delId].users.find((u: any) => u.email === newDel.masterAdminEmail);
-      if (found) {
-        masterUser = found;
-        break;
-      }
-    }
+    // Search globally first to see if they exist
+    let existingUser = null;
+    Object.values(dataByDelegation).forEach((delData: any) => {
+       if (existingUser) return;
+       const found = delData.users.find((u: any) => u.email.toLowerCase() === newDel.masterAdminEmail);
+       if (found) existingUser = { ...found }; // Clone it
+    });
 
-    if (masterUser) {
-      // If user exists, promote them directly
-      masterUser.role = "admin";
-      masterUser.isApproved = true;
-      masterUser.delegationId = newDel.id;
-      if (newDel.masterAdminPassword) masterUser.password = newDel.masterAdminPassword;
-      dataByDelegation[newDel.id].users.push(masterUser);
+    if (existingUser) {
+      existingUser.role = "admin";
+      existingUser.isApproved = true;
+      existingUser.delegationId = newDel.id;
+      if (newDel.masterAdminPassword) existingUser.password = newDel.masterAdminPassword;
+      dataByDelegation[newDel.id].users.push(existingUser);
     } else {
-      // If not exists globally, create new
       dataByDelegation[newDel.id].users.push({
         id: "admin-" + newDel.id,
         email: newDel.masterAdminEmail,
@@ -942,13 +944,17 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/change-role", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
+    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para cambiar roles" });
+    
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     
     if (userIndex !== -1) {
-      if (data.users[userIndex].email === "jsphprendas@gmail.com") {
-        return res.status(403).json({ error: "No se puede cambiar el rol del administrador maestro" });
+      const user = data.users[userIndex];
+      const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
+      if (superAdmins.some((email: string) => email.toLowerCase() === user.email.toLowerCase())) {
+        return res.status(403).json({ error: "No se puede cambiar el rol de un super usuario" });
       }
       
       data.users[userIndex].role = role;
@@ -961,7 +967,9 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/approve", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
+    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para aprobar usuarios" });
+    
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     if (userIndex !== -1) {
@@ -984,7 +992,9 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/reject", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
+    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para rechazar usuarios" });
+    
     data.users = data.users.filter((u: any) => u.id !== req.params.id);
     save();
     io.to(id).emit("db:update", data);
@@ -994,12 +1004,15 @@ async function startServer() {
   });
 
   app.delete("/api/users/:id", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAdmin, isSuperAdmin } = getContext(req);
+    if (!isAdmin && !isSuperAdmin) return res.status(403).json({ error: "No tienes permisos para eliminar usuarios" });
+    
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     if (userIndex !== -1) {
       const user = data.users[userIndex];
-      if (user.email === "jsphprendas@gmail.com") {
-        return res.status(403).json({ error: "No se puede eliminar al administrador maestro" });
+      const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
+      if (superAdmins.some((email: string) => email.toLowerCase() === user.email.toLowerCase())) {
+        return res.status(403).json({ error: "No se puede eliminar a un super usuario" });
       }
       
       if (!data.trash) data.trash = [];
@@ -1039,6 +1052,296 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // GLOBAL DIAGNOSTICS & AUDIT
+  app.get("/api/admin/system-audit", (req, res) => {
+    const { isSuperAdmin } = getContext(req);
+    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
+
+    const report: any = {
+      timestamp: new Date().toISOString(),
+      issues: [],
+      stats: {
+        totalDelegations: globalData.delegations.length,
+        totalUsers: 0,
+        orphanProducts: 0,
+        delegationsWithNoAdmin: 0,
+        duplicateEmails: 0,
+        brokenRequests: 0,
+        orphanedUsers: 0
+      }
+    };
+
+    const allEmailMap: Record<string, string[]> = {}; // email -> [delegationIds]
+
+    // 1. Audit Global Delegation List
+    globalData.delegations.forEach((d: any) => {
+      if (!d.id || !d.name) {
+        report.issues.push({ level: "CRITICAL", delId: d.id || "unknown", msg: "Delegación con metadatos corruptos en el registro global." });
+      }
+      
+      // Ensure data structure exists in memory
+      if (!dataByDelegation[d.id]) {
+        report.issues.push({ level: "ERROR", delId: d.id, msg: "Faltan datos operacionales en memoria para esta delegación." });
+      }
+    });
+
+    Object.keys(dataByDelegation).forEach(delId => {
+      const delData = dataByDelegation[delId];
+      const delInfo = globalData.delegations.find(d => d.id === delId);
+      
+      if (delId !== "default" && !delInfo) {
+        report.stats.orphanedUsers += delData.users.length;
+        report.issues.push({ level: "CRITICAL", delId, msg: `Datos de delegación activa pero NO registrada en el índice global.` });
+      }
+
+      report.stats.totalUsers += delData.users.length;
+
+      // Check for admin presence
+      const hasAdmin = delData.users.some((u: any) => u.role === "admin" && u.isApproved);
+      if (!hasAdmin && delId !== "default") {
+        report.stats.delegationsWithNoAdmin++;
+        report.issues.push({ level: "CRITICAL", delId, msg: "Delegación sin administrador activo. Nadie puede gestionar pedidos localmente." });
+      }
+
+      // Check for orphan products (missing category)
+      delData.products.forEach((p: any) => {
+        const catExists = delData.categories.some((c: any) => c.name === p.category);
+        if (!catExists) {
+          report.stats.orphanProducts++;
+          report.issues.push({ level: "WARNING", delId, msg: `Artículo '${p.name}' con bloque inexistente: '${p.category}'` });
+        }
+      });
+
+      // User Integrity & Duplicate Check
+      delData.users.forEach((u: any) => {
+        if (!u.id || !u.email) {
+          report.issues.push({ level: "ERROR", delId, msg: `Usuario detectado con datos corruptos (ID o Email faltante).` });
+        } else {
+          const email = u.email.toLowerCase();
+          if (!allEmailMap[email]) allEmailMap[email] = [];
+          allEmailMap[email].push(delId);
+        }
+      });
+
+      // Request Integrity
+      delData.requests.forEach((r: any) => {
+        const missingItems = r.items.filter((item: any) => !delData.products.some((p: any) => p.id === item.productId));
+        if (missingItems.length > 0) {
+          report.stats.brokenRequests++;
+          report.issues.push({ level: "ERROR", delId, msg: `Pedido #${r.id.substring(0,8)} contiene ${missingItems.length} artículos que ya no existen en inventario.` });
+        }
+      });
+
+      // Stock consistency
+      delData.products.forEach((p: any) => {
+        const moves = delData.movements.filter((m: any) => m.productId === p.id);
+        const calcIn = moves.filter((m: any) => m.type === 'in').reduce((sum: number, m: any) => sum + (parseFloat(m.quantity) || 0), 0);
+        const calcOut = moves.filter((m: any) => m.type === 'out').reduce((sum: number, m: any) => sum + (parseFloat(m.quantity) || 0), 0);
+        const diff = calcIn - calcOut;
+        const current = parseFloat(p.quantity) || 0;
+        
+        if (Math.abs(diff - current) > 0.01) {
+           report.issues.push({ 
+             level: "WARNING", 
+             delId, 
+             msg: `Articulo '${p.name}': Discrepancia de stock. Calculado via movimientos: ${diff}, En ficha técnica: ${current}` 
+           });
+        }
+      });
+    });
+
+    // Check for global duplicates across all delegations
+    for (const email of Object.keys(allEmailMap)) {
+      if (allEmailMap[email].length > 1) {
+        report.stats.duplicateEmails++;
+        report.issues.push({ 
+          level: "WARNING", 
+          delId: "global", 
+          msg: `Email duplicado en múltiples delegaciones: ${email} (Encontrado en: ${allEmailMap[email].join(", ")})` 
+        });
+      }
+    }
+
+    res.json(report);
+  });
+
+  app.post("/api/admin/system-repair", (req, res) => {
+    const { isSuperAdmin } = getContext(req);
+    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
+
+    let repairs = 0;
+    Object.keys(dataByDelegation).forEach(delId => {
+      const delData = dataByDelegation[delId];
+      const delInfo = globalData.delegations.find(d => d.id === delId);
+
+      // Fix 1: Ensure master admin is in the users list
+      if (delInfo && delInfo.masterAdminEmail) {
+        const hasMaster = delData.users.some((u: any) => u.email.toLowerCase() === delInfo.masterAdminEmail.toLowerCase());
+        if (!hasMaster) {
+          delData.users.push({
+            id: "repair-admin-" + Date.now(),
+            email: delInfo.masterAdminEmail.toLowerCase(),
+            role: "admin",
+            name: "Administrador Maestro (Auto-Reparado)",
+            isApproved: true,
+            delegationId: delId,
+            password: delInfo.masterAdminPassword || "INTEN4321"
+          });
+          repairs++;
+        }
+      }
+
+      // Fix 2: Ensure orphan products have a 'General' category
+      const orphanProds = delData.products.filter((p: any) => !delData.categories.some((c: any) => c.name === p.category));
+      if (orphanProds.length > 0) {
+        if (!delData.categories.some((c: any) => c.name === "General")) {
+          delData.categories.push({ id: "fix-cat-" + Date.now(), name: "General", location: "fuerza_publica" });
+          repairs++;
+        }
+        orphanProds.forEach((p: any) => {
+          p.category = "General";
+          repairs++;
+        });
+      }
+
+      // Fix 3: Sanitize Users (Remove duplicates within same delegation)
+      const seenEmails = new Set();
+      const uniqueUsers = [];
+      for (const u of delData.users) {
+        if (!u.email) continue;
+        if (seenEmails.has(u.email.toLowerCase())) {
+          repairs++;
+          continue; 
+        }
+        seenEmails.add(u.email.toLowerCase());
+        uniqueUsers.push(u);
+      }
+      if (delData.users.length !== uniqueUsers.length) {
+        delData.users = uniqueUsers;
+      }
+
+      // Fix 4: Remove broken requests
+      if (delData.requests.length > 0) {
+        const validRequests = delData.requests.filter((r: any) => {
+           const hasValidItems = r.items.every((item: any) => delData.products.some((p: any) => p.id === item.productId));
+           return hasValidItems;
+        });
+        if (validRequests.length !== delData.requests.length) {
+           repairs += (delData.requests.length - validRequests.length);
+           delData.requests = validRequests;
+        }
+      }
+
+      if (repairs > 0) saveDelegationData(delId);
+    });
+
+    res.json({ success: true, repairsPerformed: repairs });
+  });
+
+  app.post("/api/admin/simulate-stress", (req, res) => {
+    const { isSuperAdmin } = getContext(req);
+    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
+
+    const delId = "stress-test-" + Date.now();
+    const delName = "JURISDICCIÓN PRUEBA ESTRÉS";
+    
+    // 1. Create dummy delegation
+    globalData.delegations.push({
+      id: delId,
+      name: delName,
+      masterAdminEmail: "tester@stress.com",
+      masterAdminPassword: "password123",
+      createdAt: new Date().toISOString()
+    });
+    
+    const delData = getDefaultData(delId);
+    dataByDelegation[delId] = delData;
+    loadedDelegations.add(delId);
+
+    // 2. Flood with dummy data
+    // Add categories
+    const categories = ["ABARROTES", "LIMPIEZA", "REPOSTERÍA", "CARNES"];
+    categories.forEach(n => delData.categories.push({ id: "st-" + Math.random(), name: n, location: "fuerza_publica" }));
+
+    // Add 20 products
+    for (let i = 0; i < 20; i++) {
+      delData.products.push({
+        id: "prod-st-" + i,
+        name: `Insumo Stress ${i}`,
+        category: categories[i % categories.length],
+        quantity: 100,
+        unit: "uds",
+        minStock: 10,
+        visible: true
+      });
+    }
+
+    // Add 10 users
+    for (let i = 0; i < 10; i++) {
+      delData.users.push({
+        id: "user-st-" + i,
+        email: `user${i}@stress.com`,
+        name: `Operador Stress ${i}`,
+        role: i === 0 ? "admin" : "cook",
+        isApproved: true,
+        delegationId: delId
+      });
+    }
+
+    // Simulate 100 movements
+    for (let i = 0; i < 100; i++) {
+      const prodIndex = Math.floor(Math.random() * 20);
+      const isOut = Math.random() > 0.3;
+      const qty = Math.floor(Math.random() * 5) + 1;
+      
+      const p = delData.products[prodIndex];
+      if (isOut && p.quantity < qty) continue;
+
+      p.quantity = isOut ? p.quantity - qty : p.quantity + qty;
+      delData.movements.push({
+        id: "mov-st-" + i,
+        productId: p.id,
+        productName: p.name,
+        type: isOut ? "out" : "in",
+        quantity: qty,
+        user: "Tester Bot",
+        timestamp: new Date().toISOString(),
+        note: "Prueba de carga masiva"
+      });
+    }
+
+    saveDelegationData(delId);
+    saveGlobalData();
+
+    res.json({ 
+      success: true, 
+      message: "Entorno de prueba de estrés recreado correctamente",
+      delegationId: delId,
+      usersCreated: 10,
+      movementsSimulated: 100
+    });
+  });
+
+  app.post("/api/admin/factory-reset", async (req, res) => {
+    const { isSuperAdmin } = getContext(req);
+    if (!isSuperAdmin) return res.status(403).json({ error: "Acceso denegado" });
+
+    console.log("[FACTORY RESET] Triggered by master admin.");
+
+    // Reset global state
+    globalData.delegations = [];
+    globalData.users = [];
+    
+    // Clear in-memory delegations
+    Object.keys(dataByDelegation).forEach(key => delete dataByDelegation[key]);
+    loadedDelegations.clear();
+
+    // Persist emptiness
+    await saveGlobalData();
+    
+    res.json({ success: true, message: "Sistema reseteado a valores de fábrica. Se han eliminado todas las delegaciones y usuarios globales." });
+  });
+  
   // Trash Endpoints
   app.get("/api/trash", (req, res) => {
     const { data } = getContext(req);
@@ -1109,10 +1412,21 @@ async function startServer() {
   });
 
   app.get("/api/db", (req, res) => {
-    const { data, id } = getContext(req);
+    const context = getContext(req);
+    const isLoaded = loadedDelegations.has(context.id);
+    
+    // If not loaded and using Firebase, explicitly tell the client to wait
+    if (!isLoaded && db) {
+      return res.status(202).json({ 
+        _isLoaded: false,
+        _isGlobalLoaded: isGlobalLoaded,
+        message: "Sincronizando con la nube..." 
+      });
+    }
+
     res.json({ 
-      ...data, 
-      _isLoaded: loadedDelegations.has(id),
+      ...context.data, 
+      _isLoaded: isLoaded,
       _isGlobalLoaded: isGlobalLoaded
     });
   });

@@ -37,9 +37,10 @@ import { maskEmail } from "../../lib/helpers";
 interface RequestSectionProps {
   user: UserType;
   data: DBData;
+  onGlobalRefresh?: () => void;
 }
 
-export default function RequestSection({ user, data }: RequestSectionProps) {
+export default function RequestSection({ user, data, onGlobalRefresh }: RequestSectionProps) {
   const [expandedDates, setExpandedDates] = React.useState<Set<string>>(new Set());
   const [selectedRoles, setSelectedRoles] = React.useState<Record<string, string>>({});
   
@@ -187,6 +188,7 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
       
       await apiFetch(`/api/requests/${id}/${action}`, { method: "POST" });
       toast.success(action === 'confirm' ? "Pedido confirmado y stock retirado" : "Pedido rechazado");
+      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message || "Error al procesar acción");
     }
@@ -200,6 +202,7 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
         body: JSON.stringify({ role })
       });
       toast.success(action === 'approve' ? `Usuario aprobado como ${role === "cook" ? "Cocinero" : role === "admin" ? "Administrador" : "Gestión"}` : "Registro denegado");
+      if (onGlobalRefresh) onGlobalRefresh();
     } catch (e: any) {
       toast.error(e.message || "Error al procesar usuario");
     }
