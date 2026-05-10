@@ -66,7 +66,7 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   };
 
   const pendingRequests = useMemo(() => {
-    let filtered = data.requests.filter(r => r.status === "pending");
+    let filtered = (data.requests || []).filter(r => r.status === "pending");
     
     if (filterSearch) {
       const search = filterSearch.toLowerCase();
@@ -94,7 +94,7 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   }, [data.requests, filterSearch, filterUser, filterUrgent]);
 
   const pendingUsers = useMemo(() => 
-    data.users.filter(u => !u.isApproved)
+    (data.users || []).filter(u => !u.isApproved)
   , [data.users]);
 
   const isMasterAdmin = user.email === "jsphprendas@gmail.com";
@@ -146,13 +146,13 @@ export default function RequestSection({ user, data, onGlobalRefresh }: RequestS
   }, [data.requests, data.pastHistories, filterSearch, filterStatus, filterUser, filterUrgent]);
 
   const cooks = useMemo(() => {
-    const list = data.users.filter(u => u.role !== "viewer");
+    const list = (data.users || []).filter(u => u.role !== "viewer");
     return list;
   }, [data.users]);
 
   const availableProducts = useMemo(() => {
     if (!itemSearchTerm) return [];
-    return data.products.filter(p => 
+    return (data.products || []).filter(p => 
       p.name.toLowerCase().includes(itemSearchTerm.toLowerCase()) &&
       !editedItems.some(ei => ei.productId === p.id)
     ).slice(0, 5);

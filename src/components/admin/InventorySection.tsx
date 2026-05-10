@@ -315,7 +315,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   const filteredCategories = useMemo(() => {
     // Default to the first location if none selected, to avoid empty filter
     const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let cats = data.categories.filter(c => (c.location || 'fuerza_publica') === currentLocation);
+    let cats = (data.categories || []).filter(c => (c.location || 'fuerza_publica') === currentLocation);
     
     if (!searchTerm) return cats;
     return cats.filter(c => 
@@ -325,7 +325,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
 
   const filteredProducts = useMemo(() => {
     const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let prods = data.products.filter(p => (p.location || 'fuerza_publica') === currentLocation);
+    let prods = (data.products || []).filter(p => (p.location || 'fuerza_publica') === currentLocation);
     if (selectedCategory) {
       prods = prods.filter(p => p.category === selectedCategory);
     }
@@ -366,7 +366,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   };
 
   const deleteCategory = async (id: string, name: string) => {
-    const productsInCat = data.products.filter(p => p.category === name && (p.location || 'fuerza_publica') === selectedLocation);
+    const productsInCat = (data.products || []).filter(p => p.category === name && (p.location || 'fuerza_publica') === selectedLocation);
     if (productsInCat.length > 0) {
       if (!window.confirm(`Este bloque contiene ${productsInCat.length} artículos. ¿Estás seguro de que deseas eliminarlo?`)) return;
     } else {
@@ -805,7 +805,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                       {category.name}
                     </CardTitle>
                     <div className="flex items-center gap-1 text-[10px] md:text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                      {data.products.filter(p => p.category === category.name && (p.location || 'fuerza_publica') === selectedLocation).length} Artículos
+                      {(data.products || []).filter(p => p.category === category.name && (p.location || 'fuerza_publica') === selectedLocation).length} Artículos
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-slate-400 group-hover:translate-x-1 transition-transform" />
@@ -855,7 +855,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
         <div className="space-y-4">
           {/* Mobile All-Products List */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-            {data.products.filter(p => 
+            {(data.products || []).filter(p => 
               p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
               p.category.toLowerCase().includes(searchTerm.toLowerCase())
             ).map(product => (
@@ -885,7 +885,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.products.filter(p => 
+                {(data.products || []).filter(p => 
                   p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                   p.category.toLowerCase().includes(searchTerm.toLowerCase())
                 ).map(product => (
@@ -1183,7 +1183,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                   <span className="font-semibold text-slate-800 text-sm">{loc.name}</span>
                   <Button variant="ghost" size="sm" onClick={async () => {
                      // Frontend Safety Check
-                     const productsInLoc = data.products.filter(p => (p.location || 'fuerza_publica') === loc.id);
+                     const productsInLoc = (data.products || []).filter(p => (p.location || 'fuerza_publica') === loc.id);
                      if (productsInLoc.length > 0) {
                         toast.error(`No se puede eliminar: El inventario "${loc.name}" contiene ${productsInLoc.length} artículos. Debe moverlos o eliminarlos primero.`);
                         return;

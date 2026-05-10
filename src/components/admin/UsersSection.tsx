@@ -64,7 +64,7 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
   }, [isSuperAdmin, data.users]);
 
   const activeUsers = useMemo(() => {
-    const list = showGlobalUsers ? globalUsers : data.users;
+    const list = showGlobalUsers ? globalUsers : (data.users || []);
     return list.filter(u => u.id !== "admin-main");
   }, [data.users, globalUsers, showGlobalUsers]);
 

@@ -89,8 +89,8 @@ export default React.memo(function AdminDashboard({
   }, [user, isSuperAdmin, isReadOnly]);
 
   const pendingCount = useMemo(() => {
-    const stockRequests = data.requests.filter(r => r.status === "pending").length;
-    const userRequests = data.users.filter(u => !u.isApproved).length;
+    const stockRequests = (data.requests || []).filter(r => r.status === "pending").length;
+    const userRequests = (data.users || []).filter(u => !u.isApproved).length;
     return stockRequests + userRequests;
   }, [data.requests, data.users]);
 
@@ -589,7 +589,7 @@ export default React.memo(function AdminDashboard({
                      onGlobalRefresh={onGlobalRefresh}
                    />
                 )}
-                {activeTab === "requests" && <RequestSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
+                {activeTab === "notifications" && <RequestSection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "requests-history" && (
                   <RequestsHistorySection 
                     user={effectiveUser} 

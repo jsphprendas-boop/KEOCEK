@@ -39,32 +39,24 @@ async function startServer() {
   if (fs.existsSync(firebaseConfigPath)) {
     try {
       const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
-      console.log(`[CONFIG] Read firebase-applet-config.json. Project: ${firebaseConfig.projectId}, Database: ${firebaseConfig.firestoreDatabaseId}`);
-
-      // Force project ID into environment to ensure underlying SDKs use correct target
-      if (firebaseConfig.projectId) {
-        process.env.GOOGLE_CLOUD_PROJECT = firebaseConfig.projectId;
-        process.env.FIRESTORE_PROJECT_ID = firebaseConfig.projectId;
-      }
-
-      // Initialize Admin SDK
+      
+      // Initialize Admin SDK - Always use config projectId to match the databaseId
       if (!admin.apps.length) {
         admin.initializeApp({
           projectId: firebaseConfig.projectId
         });
-        console.log(`[FIREBASE] Admin initialized for project: ${admin.app().options.projectId}`);
+        console.log(`[FIREBASE] Admin initialized with Project ID: ${firebaseConfig.projectId}`);
       }
       
       const dbId = firebaseConfig.firestoreDatabaseId || "(default)";
+      
       try {
         db = getFirestore(admin.app(), dbId);
         console.log(`[FIREBASE] Firestore initialized for database: ${dbId}`);
       } catch (dbErr: any) {
         console.error(`[FIREBASE] Failed targeting database ${dbId}:`, dbErr.message || dbErr);
-        db = getFirestore(admin.app()); 
-        console.log(`[FIREBASE] Falling back to (default) database`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[FIREBASE] Admin setup error [CRITICAL]:", e);
     }
   }
@@ -409,33 +401,14 @@ async function startServer() {
         } catch (e: any) {
           console.error(`[FETCH] Error loading global config (DB: ${tDbId}):`, e.message || e);
           
-          const isPermissionDenied = e.message?.includes("PERMISSION_DENIED") || e.code === 7;
-          const isNotFound = e.message?.includes("NOT_FOUND") || e.code === 5;
-
-          if (tDbId !== "(default)" && (isPermissionDenied || isNotFound)) {
-            console.warn(`[FETCH] DB ${tDbId} unreachable. Trying (default)...`);
-            try {
-              const fallbackDb = getFirestore(admin.app());
-              db = fallbackDb; 
-              return tryFetch(fallbackDb, "(default)", 0);
-            } catch (fallbackErr) {
-              console.error("[FETCH] Fatal error during fallback initialization:", fallbackErr);
-            }
-          }
-          
-          if (tDbId === "(default)" || retryCount >= 2) {
-            console.warn(`[FETCH] Terminal failure. Database access unavailable. App will run with local-only config.`);
-            isGlobalLoaded = true; // Still allow app to start
-            globalData.delegations.forEach((d: any) => loadedDelegations.add(d.id));
-            return true;
-          }
-
           if (retryCount < 2) {
              console.log(`[FETCH] Retrying in 2s...`);
              await new Promise(r => setTimeout(r, 2000));
              return tryFetch(targetDb, tDbId, retryCount + 1);
           }
           
+          isGlobalLoaded = true; // Still allow app to start
+          globalData.delegations.forEach((d: any) => loadedDelegations.add(d.id));
           return false;
         }
       };
@@ -497,7 +470,6 @@ async function startServer() {
 
   // API routes FIRST
   app.get("/api/health", (req, res) => {
-    console.log("Health check requested");
     res.json({ 
       status: "ok", 
       timestamp: new Date().toISOString(),

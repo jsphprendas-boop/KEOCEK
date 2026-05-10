@@ -132,7 +132,7 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
   };
 
   const cooks = useMemo(() => {
-    return data.users.filter(u => u.role === "cook" || u.role === "admin");
+    return (data.users || []).filter(u => u.role === "cook" || u.role === "admin");
   }, [data.users]);
 
   const filteredCooks = cooks.filter(c => 
@@ -148,8 +148,8 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
   const allRequests = useMemo(() => {
-    const pastRequests = data.pastHistories?.flatMap(h => h.requests || []) || [];
-    return [...data.requests, ...pastRequests];
+    const pastRequests = (data.pastHistories || []).flatMap(h => h.requests || []);
+    return [...(data.requests || []), ...pastRequests];
   }, [data.requests, data.pastHistories]);
 
   // Filter requests by the selected cook
