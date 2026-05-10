@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. DEFAULT DENY
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- HELPERS ---
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isSuperAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'jsphprendas@gmail.com' ||
+        request.auth.token.email == 'alecamposa32@gmail.com'
+      );
+    }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- COLLECTIONS ---
+
+    // Global System Config
+    match /system/global_config {
+      // Publicly readable so app can check for maintenance or superadmin status
+      // In production, you might want to restrict this more
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Delegations and their internal systems
+    // The server handles these mostly, but we secure them in case of direct client use
+    match /delegations/{delId} {
+      allow read: if isSignedIn();
+      
+      match /system/{docId} {
+        allow read: if isSignedIn();
+        // Only SuperAdmins (via Admin SDK usually) or explicitly identified DelegationAdmins can write
+        // Since we don't have a direct DelegationAdmin token claim, we rely on server proxying
+        // or check against a user collection (but this doc-as-db pattern makes joins hard)
+        allow write: if isSuperAdmin();
+      }
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isSuperAdmin());
+      allow create: if isSignedIn() && isOwner(userId) && (
+        !('role' in incoming()) || incoming().role == 'cook'
+      ) && (
+        !('isApproved' in incoming()) || incoming().isApproved == false
+      );
+      allow update: if isSignedIn() && (
+        isSuperAdmin() || 
+        (isOwner(userId) && (
+          // Regular users can only update basic profile info
+          // NO role or isApproved changes allowed from client
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'firstName', 'lastName', 'picture'])
+        ))
+      );
+    }
+  }
+}
