@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "node server.ts",
+    "start": "NODE_ENV=production node dist/server.cjs",
     "dev": "tsx server.ts",
-    "build": "vite build",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "vite build",
+    "build:backend": "esbuild server.ts --bundle --platform=node --outfile=dist/server.cjs --format=cjs --external:express --external:firebase-admin --external:socket.io --external:helmet --external:cors --external:express-rate-limit --external:vite",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -16,6 +18,7 @@
     "@capacitor/android": "^8.3.1",
     "@capacitor/cli": "^8.3.1",
     "@capacitor/core": "^8.3.1",
+    "@capacitor/ios": "^8.3.3",
     "@fontsource-variable/geist": "^5.2.8",
     "@google/genai": "^1.50.1",
     "@tailwindcss/typography": "^0.5.19",
@@ -65,6 +68,7 @@
     "@types/file-saver": "^2.0.7",
     "@types/node": "^22.14.0",
     "@types/react-signature-canvas": "^1.0.7",
+    "esbuild": "^0.28.0",
     "shadcn": "^4.4.0"
   }
 }

@@ -61,7 +61,7 @@ export interface User {
   id: string;
   email: string;
   googleUid?: string;
-  role: 'admin' | 'cook' | 'viewer';
+  role: 'master_admin' | 'admin' | 'gestion_user' | 'cook' | 'viewer';
   name: string;
   firstName?: string;
   lastName?: string;

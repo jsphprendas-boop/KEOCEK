@@ -4,7 +4,6 @@ import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import admin from "firebase-admin";
@@ -173,8 +172,6 @@ async function startServer() {
   }
 
   // Data persistence per delegation
-  const saveDebounce: { [key: string]: NodeJS.Timeout } = {};
-
   async function saveDelegationData(delId: string) {
     // SECURITY GUARD: Never save if delId is default AND there are other delegations (prevents pollution)
     if (delId === "default" && globalData.delegations.length > 1 && !isGlobalLoaded) {
@@ -190,52 +187,47 @@ async function startServer() {
        return;
     }
 
-    if (saveDebounce[delId]) {
-      clearTimeout(saveDebounce[delId]);
-    }
-  
-    saveDebounce[delId] = setTimeout(async () => {
-      const data = dataByDelegation[delId];
-      if (!data) return;
-  
-      // SAFETY GUARD: Check for accidental wipe
-      if (loadedDelegations.has(delId)) {
-        // If data was previously loaded, we expect it to still have basic structures
-        // If it's suddenly empty, we log a warning
-        if (data.categories.length === 0 && data.products.length === 0 && data.users.length === 0) {
-           console.warn(`[DATA WARNING] Saving an empty state for delegation ${delId}. This might be intentional or a wipe.`);
-        }
-      }
+    const data = dataByDelegation[delId];
+    if (!data) return;
 
-      if (db) {
-        try {
-          await Promise.all([
-            db.doc(`delegations/${delId}/system/main_db`).set(sanitizeForFirestore({
-              categories: data.categories,
-              products: data.products,
-              supportCategories: data.supportCategories || [],
-              supportProducts: data.supportProducts || [],
-              users: data.users,
-              settings: data.settings || {}
-            })),
-            db.doc(`delegations/${delId}/system/main_db_data_1`).set(sanitizeForFirestore({
-              movements: data.movements,
-              requests: data.requests
-            })),
-            db.doc(`delegations/${delId}/system/main_db_data_2`).set(sanitizeForFirestore({
-              adminAuditLog: data.adminAuditLog || [],
-              supportRecords: data.supportRecords || [],
-              gasReports: data.gasReports || []
-            })),
-            db.doc(`delegations/${delId}/system/trash_db`).set(sanitizeForFirestore({
-              trash: data.trash || []
-            }))
-          ]);
-        } catch (e) {
-          handleFirestoreError(e, OperationType.WRITE, `delegations/${delId}/system/*`, { delId });
-        }
+    // SAFETY GUARD: Check for accidental wipe
+    if (loadedDelegations.has(delId)) {
+      // If data was previously loaded, we expect it to still have basic structures
+      // If it's suddenly empty, we log a warning
+      if (data.categories.length === 0 && data.products.length === 0 && data.users.length === 0) {
+          console.warn(`[DATA WARNING] Saving an empty state for delegation ${delId}. This might be intentional or a wipe.`);
       }
-    }, 2000);
+    }
+
+    if (db) {
+      try {
+        await Promise.all([
+          db.doc(`delegations/${delId}/system/main_db`).set(sanitizeForFirestore({
+            categories: data.categories,
+            products: data.products,
+            supportCategories: data.supportCategories || [],
+            supportProducts: data.supportProducts || [],
+            users: data.users,
+            settings: data.settings || {}
+          })),
+          db.doc(`delegations/${delId}/system/main_db_data_1`).set(sanitizeForFirestore({
+            movements: data.movements,
+            requests: data.requests
+          })),
+          db.doc(`delegations/${delId}/system/main_db_data_2`).set(sanitizeForFirestore({
+            adminAuditLog: data.adminAuditLog || [],
+            supportRecords: data.supportRecords || [],
+            gasReports: data.gasReports || []
+          })),
+          db.doc(`delegations/${delId}/system/trash_db`).set(sanitizeForFirestore({
+            trash: data.trash || []
+          }))
+        ]);
+        console.log(`[DATA] Successfully saved delegation ${delId} to Firestore.`);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, `delegations/${delId}/system/*`, { delId });
+      }
+    }
   }
 
   const getContext = (req: express.Request) => {
@@ -250,12 +242,16 @@ async function startServer() {
     const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com", "alecamposa32@gmail.com"];
     const isSuperAdmin = superAdmins.some((email: string) => typeof email === 'string' && email.toLowerCase() === userEmail);
     const delData = dataByDelegation[delId];
+    const user = delData.users.find((u: any) => u.email === userEmail);
+    const userRole = isSuperAdmin ? 'master_admin' : (user ? user.role : 'viewer');
 
     return { 
       id: delId, 
       data: delData,
       userEmail,
       isSuperAdmin,
+      userRole,
+      isAuthorized: (requiredRoles: string[]) => isSuperAdmin || requiredRoles.includes(userRole),
       save: () => saveDelegationData(delId)
     };
   };
@@ -293,39 +289,60 @@ async function startServer() {
             
             // Load ONLY default delegation data
             const delId = "default";
-            try {
-              const [mainSnap, data1Snap, data2Snap, trashSnap] = await Promise.all([
-                targetDb.doc(`delegations/${delId}/system/main_db`).get(),
-                targetDb.doc(`delegations/${delId}/system/main_db_data_1`).get(),
-                targetDb.doc(`delegations/${delId}/system/main_db_data_2`).get(),
-                targetDb.doc(`delegations/${delId}/system/trash_db`).get()
-              ]);
-              
-              const delData = dataByDelegation[delId];
+            let retries = 0;
+            const maxRetries = 3;
+            let loaded = false;
 
-              if (mainSnap.exists) {
-                const cloudData = mainSnap.data() as any;
-                const cloudData1 = data1Snap.exists ? data1Snap.data() as any : {};
-                const cloudData2 = data2Snap.exists ? data2Snap.data() as any : {};
-                const cloudTrash = trashSnap.exists ? trashSnap.data() as any : {};
-
-                delData.categories = cloudData.categories || [];
-                delData.products = cloudData.products || [];
-                delData.movements = cloudData1.movements || [];
-                delData.requests = cloudData1.requests || [];
-                delData.adminAuditLog = cloudData2.adminAuditLog || [];
-                delData.supportRecords = cloudData2.supportRecords || [];
-                delData.supportCategories = cloudData.supportCategories || [];
-                delData.supportProducts = cloudData.supportProducts || [];
-                delData.gasReports = cloudData2.gasReports || [];
-                delData.settings = cloudData.settings || delData.settings;
-                delData.trash = cloudTrash.trash || [];
+            while (retries < maxRetries && !loaded) {
+              try {
+                const [mainSnap, data1Snap, data2Snap, trashSnap] = await Promise.all([
+                  targetDb.doc(`delegations/${delId}/system/main_db`).get(),
+                  targetDb.doc(`delegations/${delId}/system/main_db_data_1`).get(),
+                  targetDb.doc(`delegations/${delId}/system/main_db_data_2`).get(),
+                  targetDb.doc(`delegations/${delId}/system/trash_db`).get()
+                ]);
                 
-                delData.users = cloudData.users || [];
+                if (!dataByDelegation[delId]) {
+                  dataByDelegation[delId] = getDefaultData(delId);
+                }
+                const delData = dataByDelegation[delId];
+
+                if (mainSnap.exists) {
+                  const cloudData = mainSnap.data() as any;
+                  const cloudData1 = data1Snap.exists ? data1Snap.data() as any : {};
+                  const cloudData2 = data2Snap.exists ? data2Snap.data() as any : {};
+                  const cloudTrash = trashSnap.exists ? trashSnap.data() as any : {};
+
+                  delData.categories = cloudData.categories || [];
+                  delData.products = cloudData.products || [];
+                  delData.movements = cloudData1.movements || [];
+                  delData.requests = cloudData1.requests || [];
+                  delData.adminAuditLog = cloudData2.adminAuditLog || [];
+                  delData.supportRecords = cloudData2.supportRecords || [];
+                  delData.supportCategories = cloudData.supportCategories || [];
+                  delData.supportProducts = cloudData.supportProducts || [];
+                  delData.gasReports = cloudData2.gasReports || [];
+                  delData.settings = cloudData.settings || delData.settings;
+                  delData.trash = cloudTrash.trash || [];
+                  
+                  delData.users = cloudData.users || [];
+                }
+                loadedDelegations.add(delId);
+                loaded = true;
+                console.log(`[FETCH] Successfully loaded delegation ${delId} from Firestore.`);
+              } catch (e) {
+                retries++;
+                console.error(`[FETCH] Error loading delegation ${delId} (attempt ${retries}/${maxRetries}):`, e);
+                if (retries < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                }
               }
+            }
+            if (!loaded) {
+              console.error(`[FETCH] Critical: Could not load delegation ${delId} after ${maxRetries} retries.`);
+              // Even if not loaded, we mark as loaded so saving works, 
+              // but we should probably warn them that data might be stale/lost.
               loadedDelegations.add(delId);
-            } catch (e) {
-              console.error(`[FETCH] Error loading delegation ${delId} from ${tDbId}:`, e);
             }
             return true;
           } else {
@@ -560,7 +577,11 @@ async function startServer() {
 
   // Gas API
   app.post("/api/gas-reports", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAuthorized } = getContext(req);
+    
+    if (!isAuthorized(['master_admin', 'admin', 'gestion_user', 'cook'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
     const report = { id: Date.now().toString(), ...req.body, timestamp: new Date().toISOString() };
     if (!data.gasReports) data.gasReports = [];
     data.gasReports.push(report);
@@ -571,7 +592,11 @@ async function startServer() {
   });
 
   app.delete("/api/gas-reports/:id", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAuthorized } = getContext(req);
+    
+    if (!isAuthorized(['master_admin', 'admin', 'gestion_user'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
     const index = data.gasReports.findIndex((r: any) => r.id === req.params.id);
     if (index !== -1) {
       const report = data.gasReports[index];
@@ -773,7 +798,11 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/change-role", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAuthorized } = getContext(req);
+    
+    if (!isAuthorized(['master_admin', 'admin'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     
@@ -792,7 +821,11 @@ async function startServer() {
   });
 
   app.post("/api/users/:id/approve", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAuthorized } = getContext(req);
+    
+    if (!isAuthorized(['master_admin', 'admin'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
     const { role } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     if (userIndex !== -1) {
@@ -939,9 +972,19 @@ async function startServer() {
   });
 
   app.get("/api/db", (req, res) => {
-    const { data, id } = getContext(req);
+    const { data, id, isAuthorized, userEmail } = getContext(req);
+    const canSeeHidden = isAuthorized(['master_admin', 'admin', 'gestion_user']);
+
+    const filteredData = { ...data };
+    if (!canSeeHidden) {
+      filteredData.products = filteredData.products.filter((p: any) => {
+        const isHidden = p.isHidden === true || p.isHidden === 'true';
+        return !isHidden;
+      });
+    }
+    
     res.json({ 
-      ...data, 
+      ...filteredData, 
       _isLoaded: loadedDelegations.has(id),
       _isGlobalLoaded: isGlobalLoaded
     });
@@ -1081,7 +1124,12 @@ async function startServer() {
   });
 
   app.post("/api/products", (req, res) => {
-    const { data, save, id } = getContext(req);
+    const { data, save, id, isAuthorized } = getContext(req);
+    
+    if (!isAuthorized(['master_admin', 'admin', 'gestion_user'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
     const product = { 
       id: Date.now().toString(), 
       location: 'fuerza_publica', // Default
@@ -1876,13 +1924,14 @@ async function startServer() {
 
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(process.cwd(), "dist", "client");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
