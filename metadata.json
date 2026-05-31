@@ -1,5 +1,6 @@
 {
   "name": "INTENDENCIA AUTONOMA",
   "description": "Aplicación avanzada de planificación y monitoreo de inventario para cocina con roles de administrador y cocinero, sistema de contaduría en tiempo real y gestión de pedidos.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

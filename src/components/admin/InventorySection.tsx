@@ -64,7 +64,8 @@ interface InventorySectionProps {
 
 export default function InventorySection({ user, data, searchTerm, onExportAll, onGlobalRefresh }: InventorySectionProps) {
   const [selectedLocation, setSelectedLocation] = useState<string>('fuerza_publica');
-  const [isManagingInventories, setIsManagingInventories] = useState(false);
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
+  const [editingLocationName, setEditingLocationName] = useState("");
   const [newInventoryName, setNewInventoryName] = useState("");
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [isEditingCategory, setIsEditingCategory] = useState(false);
@@ -124,7 +125,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   });
 
   const handleExportInventory = () => {
-    const formattedData = filteredProducts.map(p => ({
+    const formattedData = filteredAllProducts.map(p => ({
       "Categoría": p.category,
       "Nombre": p.name,
       "Stock": p.quantity,
@@ -136,7 +137,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   };
 
   const handleExportInventoryPDF = () => {
-    const formattedData = filteredProducts.map(p => ({
+    const formattedData = filteredAllProducts.map(p => ({
       "Bloque": p.category,
       "Artículo": p.name,
       "Stock": `${p.quantity} ${p.unit || 'uds'}`,
@@ -149,7 +150,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
   const filteredCategories = useMemo(() => {
     // Default to the first location if none selected, to avoid empty filter
     const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let cats = data.categories.filter(c => (c.location || 'fuerza_publica') === currentLocation);
+    let cats = (data.categories || []).filter(c => (c.location || 'fuerza_publica') === currentLocation);
     
     if (!searchTerm) return cats;
     return cats.filter(c => 
@@ -157,20 +158,33 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
     );
   }, [data.categories, searchTerm, selectedLocation, data.settings?.customLocations]);
 
-  const filteredProducts = useMemo(() => {
-    const currentLocation = selectedLocation || data.settings?.customLocations?.[0]?.id || 'fuerza_publica';
-    let prods = data.products.filter(p => (p.location || 'fuerza_publica') === currentLocation);
+  const filteredAllProducts = useMemo(() => {
+    let prods = (data.products || []).filter(p => (p.location || 'fuerza_publica') === selectedLocation);
     if (selectedCategory) {
       prods = prods.filter(p => p.category === selectedCategory);
     }
     if (searchTerm) {
       prods = prods.filter(p => 
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         p.category.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
     return prods;
-  }, [data.products, searchTerm, selectedCategory, selectedLocation, data.settings?.customLocations]);
+  }, [data.products, searchTerm, selectedCategory, selectedLocation]);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  
+  // reset page when search/category changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory, selectedLocation]);
+
+  const paginatedAllProducts = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredAllProducts.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredAllProducts, currentPage]);
+
 
   const allMovements = useMemo(() => {
     const current = data.movements || [];
@@ -518,17 +532,59 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
       <div className="flex bg-white p-1 rounded-2xl border border-slate-200 shadow-sm w-full max-w-md mx-auto relative flex-wrap">
         {data.settings?.customLocations?.map((loc: any) => (
           <div key={loc.id} className="flex-1 min-w-[50%] relative group/loc">
-            <button
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all ${
-                selectedLocation === loc.id 
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
-                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-              }`}
-              onClick={() => { setSelectedLocation(loc.id); setSelectedCategory(null); }}
-            >
-              <BoxSelect className="w-4 h-4" />
-              {loc.name}
-            </button>
+            {editingLocationId === loc.id ? (
+              <div className={`w-full flex items-center justify-center p-1.5 h-full relative z-10 transition-all rounded-xl shadow-inner ${selectedLocation === loc.id ? 'bg-indigo-700' : 'bg-slate-100'}`}>
+                <Input
+                  autoFocus
+                  className={`h-8 font-bold text-center border-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${selectedLocation === loc.id ? 'bg-indigo-600 text-white placeholder:text-indigo-300' : 'bg-white text-slate-800 placeholder:text-slate-400'}`}
+                  value={editingLocationName}
+                  onChange={e => setEditingLocationName(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Escape') setEditingLocationId(null);
+                    if (e.key === 'Enter') {
+                      if (!editingLocationName) return;
+                      try {
+                        await apiFetch("/api/settings/locations", {
+                          method: "POST",
+                          body: JSON.stringify({ action: 'edit', location: { ...loc, name: editingLocationName } })
+                        });
+                        toast.success("Nombre actualizado");
+                        setEditingLocationId(null);
+                        if (onGlobalRefresh) onGlobalRefresh();
+                      } catch (err: any) {
+                        toast.error(err.message || "Error al actualizar");
+                      }
+                    }
+                  }}
+                  onBlur={() => setEditingLocationId(null)}
+                />
+              </div>
+            ) : (
+              <button
+                className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold transition-all ${
+                  selectedLocation === loc.id 
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200' 
+                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                }`}
+                onClick={() => { setSelectedLocation(loc.id); setSelectedCategory(null); }}
+              >
+                <BoxSelect className="w-4 h-4" />
+                {loc.name}
+              </button>
+            )}
+            
+            {!editingLocationId && (
+              <button 
+                onClick={(e) => { e.stopPropagation(); setEditingLocationId(loc.id); setEditingLocationName(loc.name); }}
+                className={`absolute top-1/2 -translate-y-1/2 left-2 p-1.5 rounded-lg opacity-0 group-hover/loc:opacity-100 transition-all z-20 ${
+                  selectedLocation === loc.id ? 'text-indigo-200 hover:text-white hover:bg-indigo-500' : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100'
+                }`}
+                title="Editar nombre"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             <button 
               onClick={(e) => { e.stopPropagation(); toggleLocationVisibility(loc.id); }}
               className={`absolute top-1/2 -translate-y-1/2 right-2 p-1.5 rounded-lg transition-all ${
@@ -558,7 +614,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
             <h3 className="font-bold text-slate-900 flex items-center gap-2 tracking-tight text-sm md:text-base">
               {selectedCategory ? `📁 Bloque: ${selectedCategory}` : "📦 Catálogo de Bloques"}
               <span className="text-[9px] md:text-[10px] font-normal text-slate-500 bg-slate-50 px-1.5 md:px-2 py-0.5 border border-slate-200 rounded-full">
-                {selectedCategory ? `${filteredProducts.length} Artículos` : `${data.categories.length} Categorías`}
+                {selectedCategory ? `${filteredAllProducts.length} Artículos` : `${data.categories.length} Categorías`}
               </span>
             </h3>
           </div>
@@ -569,15 +625,6 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
           </p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto flex-wrap items-center">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="rounded-xl font-bold uppercase text-[10px] tracking-widest border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-            onClick={() => setIsManagingInventories(true)}
-          >
-            <Settings className="w-3.5 h-3.5 mr-2" />
-            Inventarios
-          </Button>
           <Button 
             variant="outline" 
             size="sm" 
@@ -649,12 +696,13 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                     <Plus className="w-3.5 h-3.5 md:w-4 md:h-4 mr-2" />
                     Añadir Artículo
                   </DialogTrigger>
-                  <DialogContent className="border-none rounded-2xl shadow-2xl p-0 overflow-hidden max-w-[calc(100vw-2rem)] sm:max-w-xl mx-auto">
-                    <DialogHeader className="bg-slate-900 text-white p-6 text-center">
+                  <DialogContent className="border-none rounded-2xl shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden max-w-[calc(100vw-2rem)] sm:max-w-xl mx-auto">
+                    <DialogHeader className="bg-slate-900 text-white p-6 text-center shrink-0">
                       <DialogTitle className="text-lg md:text-xl font-bold tracking-tight">Registro de Producto Maestro</DialogTitle>
                       <DialogDescription className="text-slate-400 text-[10px] md:text-xs uppercase tracking-widest font-mono">Incorporación al Inventario de {selectedLocation === 'fuerza_publica' ? 'Fuerza Pública' : 'Fronteras'}</DialogDescription>
                     </DialogHeader>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-8 bg-white max-h-[80vh] overflow-y-auto">
+                    <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-white">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
                       <div className="space-y-2 md:col-span-2">
                         <Label className="text-xs font-bold text-slate-500 uppercase">Nombre del Producto</Label>
                         <Input 
@@ -719,9 +767,12 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                           className="border-slate-200 rounded-xl h-10 md:h-11 bg-slate-50 dark:bg-slate-800 focus-visible:ring-indigo-500 uppercase font-mono text-sm text-slate-900 dark:text-slate-100"
                         />
                       </div>
-                      <Button onClick={addProduct} className="md:col-span-2 w-full bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold h-11 md:h-12 transition-all shadow-lg shadow-indigo-500/20 text-xs md:text-sm">
-                        Integrar Artículo al Inventario
-                      </Button>
+                      </div>
+                      <div className="pt-4 border-t border-slate-100 mt-2">
+                        <Button onClick={addProduct} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold h-11 md:h-12 transition-all shadow-lg shadow-indigo-500/20 text-xs md:text-sm">
+                          Integrar Artículo al Inventario
+                        </Button>
+                      </div>
                     </div>
                   </DialogContent>
                 </Dialog>
@@ -797,27 +848,36 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
-            {filteredProducts.map(product => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6">
+              {paginatedAllProducts.map(product => (
+                <ProductCard key={product.id} product={product} />
+              ))}
 
-            {filteredProducts.length === 0 && (
-              <div className="col-span-full h-40 md:h-80 bg-white rounded-3xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
-                <BoxSelect className="w-8 md:w-12 h-8 md:h-12 mb-2 opacity-10" />
-                <p className="text-[10px] md:text-sm font-bold uppercase tracking-[0.2em] opacity-40">Sin artículos en este bloque</p>
+              {filteredAllProducts.length === 0 && (
+                <div className="col-span-full h-40 md:h-80 bg-white rounded-3xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400">
+                  <BoxSelect className="w-8 md:w-12 h-8 md:h-12 mb-2 opacity-10" />
+                  <p className="text-[10px] md:text-sm font-bold uppercase tracking-[0.2em] opacity-40">Sin artículos en este bloque</p>
+                </div>
+              )}
+            </div>
+            
+            {filteredAllProducts.length > itemsPerPage && (
+              <div className="flex justify-center mt-6">
+                <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                  <Button variant="ghost" size="sm" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}>Anterior</Button>
+                  <div className="text-xs font-bold px-2">{currentPage} / {Math.ceil(filteredAllProducts.length / itemsPerPage)}</div>
+                  <Button variant="ghost" size="sm" onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredAllProducts.length / itemsPerPage), prev + 1))} disabled={currentPage >= Math.ceil(filteredAllProducts.length / itemsPerPage)}>Siguiente</Button>
+                </div>
               </div>
             )}
-          </div>
+          </>
         )
       ) : (
         <div className="space-y-4">
           {/* Mobile All-Products List */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:hidden">
-            {data.products.filter(p => 
-              p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-              p.category.toLowerCase().includes(searchTerm.toLowerCase())
-            ).map(product => (
+            {paginatedAllProducts.map(product => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
@@ -835,10 +895,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.products.filter(p => 
-                  p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                  p.category.toLowerCase().includes(searchTerm.toLowerCase())
-                ).map(product => (
+                {paginatedAllProducts.map(product => (
                   <TableRow key={product.id} className="group cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => setSelectedDetailProduct(product)}>
                     <TableCell className="font-bold text-slate-800">{product.name}</TableCell>
                     <TableCell>
@@ -889,6 +946,16 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
               </TableBody>
             </Table>
           </div>
+          
+          {filteredAllProducts.length > itemsPerPage && (
+            <div className="flex justify-center mt-6 mb-4">
+              <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                <Button variant="ghost" size="sm" onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}>Anterior</Button>
+                <div className="text-xs font-bold px-2">{currentPage} / {Math.ceil(filteredAllProducts.length / itemsPerPage)}</div>
+                <Button variant="ghost" size="sm" onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredAllProducts.length / itemsPerPage), prev + 1))} disabled={currentPage >= Math.ceil(filteredAllProducts.length / itemsPerPage)}>Siguiente</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -923,13 +990,14 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
 
       {/* Edit Product Dialog */}
       <Dialog open={isEditingProduct} onOpenChange={setIsEditingProduct}>
-        <DialogContent className="border-none rounded-2xl shadow-2xl p-0 overflow-hidden max-w-[calc(100vw-2rem)] sm:max-w-xl mx-auto">
-          <DialogHeader className="bg-slate-900 text-white p-6 text-center">
+        <DialogContent className="border-none rounded-2xl shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden max-w-[calc(100vw-2rem)] sm:max-w-xl mx-auto">
+          <DialogHeader className="bg-slate-900 text-white p-6 text-center shrink-0">
             <DialogTitle className="text-lg md:text-xl font-bold tracking-tight">Editar Artículo del Inventario</DialogTitle>
             <DialogDescription className="text-slate-400 text-[10px] md:text-xs uppercase tracking-widest font-mono">Modificación de Datos Maestros</DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-4 md:p-8 bg-white max-h-[80vh] overflow-y-auto">
-            <div className="space-y-2 md:col-span-2">
+          <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6">
+              <div className="space-y-2 md:col-span-2">
               <Label className="text-xs font-bold text-slate-500 uppercase">Nombre del Producto</Label>
               <Input 
                 value={editingProduct?.name || ""} 
@@ -979,9 +1047,12 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 className="border-slate-200 dark:border-slate-700 rounded-xl h-10 md:h-11 bg-slate-50 dark:bg-slate-800 focus-visible:ring-indigo-500 uppercase font-mono text-sm text-slate-900 dark:text-slate-100"
               />
             </div>
-            <Button onClick={updateProduct} className="md:col-span-2 w-full bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold h-11 md:h-12 transition-all shadow-lg shadow-indigo-500/20 text-xs md:text-sm">
-              Actualizar Asignación y Datos
-            </Button>
+            </div>
+            <div className="pt-4 border-t border-slate-100 mt-2">
+              <Button onClick={updateProduct} className="w-full bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl font-bold h-11 md:h-12 transition-all shadow-lg shadow-indigo-500/20 text-xs md:text-sm">
+                Actualizar Asignación y Datos
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1121,60 +1192,10 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
           )}
         </DialogContent>
       </Dialog>
-      {/* Management Dialog */}
-      <Dialog open={isManagingInventories} onOpenChange={setIsManagingInventories}>
-        <DialogContent className="rounded-3xl border-none shadow-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-black text-slate-900">Gestionar Inventarios</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-             {data.settings?.customLocations?.map((loc: any) => (
-                <div key={loc.id} className="flex justify-between items-center p-3 bg-slate-100 rounded-xl">
-                  <span className="font-semibold text-slate-800 text-sm">{loc.name}</span>
-                  <Button variant="ghost" size="sm" onClick={async () => {
-                     // Frontend Safety Check
-                     const productsInLoc = data.products.filter(p => (p.location || 'fuerza_publica') === loc.id);
-                     if (productsInLoc.length > 0) {
-                        toast.error(`No se puede eliminar: El inventario "${loc.name}" contiene ${productsInLoc.length} artículos. Debe moverlos o eliminarlos primero.`);
-                        return;
-                     }
-
-                     if (window.confirm(`¿Seguro que deseas eliminar el inventario "${loc.name}"?`)) {
-                       try {
-                         await apiFetch("/api/settings/locations", {
-                           method: "POST",
-                           body: JSON.stringify({ action: 'delete', location: loc })
-                         });
-                         toast.success("Inventario eliminado");
-                         if (onGlobalRefresh) onGlobalRefresh();
-                       } catch (e: any) {
-                         toast.error(e.message || "Error al eliminar");
-                       }
-                     }
-                  }}>
-                    <Trash2 className="w-4 h-4 text-red-500" />
-                  </Button>
-                </div>
-             ))}
-             <div className="flex gap-2">
-                <Input value={newInventoryName} onChange={e => setNewInventoryName(e.target.value)} placeholder="Nuevo Inventario" />
-                <Button onClick={() => {
-                  apiFetch("/api/settings/locations", {
-                    method: "POST",
-                    body: JSON.stringify({ action: 'add', location: { name: newInventoryName } })
-                  }).then(() => {
-                    setNewInventoryName("");
-                    if (onGlobalRefresh) onGlobalRefresh();
-                  });
-                }}>Añadir</Button>
-             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
       {/* Stock Adjustment Dialog */}
       <Dialog open={isAdjustingStock} onOpenChange={setIsAdjustingStock}>
-        <DialogContent className="border-none rounded-2xl shadow-2xl p-0 overflow-hidden max-w-sm">
-          <DialogHeader className={`p-6 text-white ${stockAdjustment.type === 'in' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <DialogContent className="border-none rounded-2xl shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden max-w-sm">
+          <DialogHeader className={`p-6 text-white shrink-0 ${stockAdjustment.type === 'in' ? 'bg-emerald-600' : 'bg-red-600'}`}>
             <DialogTitle className="text-lg font-bold tracking-tight">
               {stockAdjustment.type === 'in' ? 'Ingreso de Stock' : 'Salida de Stock'}
             </DialogTitle>
@@ -1182,7 +1203,7 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
               {stockAdjustment.product?.name}
             </DialogDescription>
           </DialogHeader>
-          <div className="p-6 space-y-4 bg-white">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-white">
             <div className="space-y-2">
               <Label className="text-xs font-bold text-slate-500 uppercase">Cantidad a {stockAdjustment.type === 'in' ? 'sumar' : 'restar'}</Label>
               <Input 
@@ -1202,7 +1223,8 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 className="flex min-h-[80px] w-full rounded-xl border border-slate-200 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm ring-offset-white placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 text-slate-900 dark:text-slate-100"
               />
             </div>
-            <div className="flex gap-2 pt-2">
+            </div>
+            <div className="flex gap-2 p-6 pt-0 border-t-0 bg-white">
               <Button 
                 onClick={confirmStockAdjustment} 
                 className={`flex-1 text-white rounded-xl font-bold h-11 transition-all shadow-lg ${
@@ -1217,7 +1239,6 @@ export default function InventorySection({ user, data, searchTerm, onExportAll, 
                 Cancelar
               </Button>
             </div>
-          </div>
         </DialogContent>
       </Dialog>
     </div>

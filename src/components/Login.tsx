@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Lock, Mail, CookingPot, ShieldCheck, Eye, EyeOff, Download, ShieldAlert } from "lucide-react";
-import { User, Delegation } from "../types";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Lock, Mail, CookingPot, ShieldCheck, Eye, EyeOff, Download, ShieldAlert, Share, PlusSquare } from "lucide-react";
+import { User } from "../types";
 import { toast } from "sonner";
 import { auth, googleProvider } from "../lib/firebase";
 import { signInWithPopup } from "firebase/auth";
@@ -12,26 +13,19 @@ import { isSuperAdminEmail } from "../lib/helpers";
 
 interface LoginProps {
   onLogin: (user: User) => void;
-  allDelegations: Delegation[];
-  currentDelegationId: string;
-  onDelegationChange: (id: string) => void;
 }
 
 export default function Login({ 
-  onLogin, 
-  allDelegations, 
-  currentDelegationId, 
-  onDelegationChange 
+  onLogin
 }: LoginProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [adminPassword, setAdminPassword] = useState("");
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
-  const currentDelegation = allDelegations.find(d => d.id === currentDelegationId);
-  const isMasterAdminEmail = isSuperAdminEmail(email) || (currentDelegation?.masterAdminEmail?.toLowerCase() === email.toLowerCase() && email !== "");
+  const isMasterAdminEmail = isSuperAdminEmail(email);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -51,8 +45,7 @@ export default function Login({
         toast.success("Instalación iniciada con éxito");
       }
     } else {
-      // Logic for iOS or already installed
-      toast.info("Para instalar esta App de forma segura: En iPhone toca 'Compartir' y luego 'Añadir a pantalla de inicio'. En Android/PC usa el menú del navegador.");
+      setShowInstallGuide(true);
     }
   };
 
@@ -72,7 +65,7 @@ export default function Login({
           displayName: user.displayName, 
           photoURL: user.photoURL,
           uid: user.uid,
-          delegationId: currentDelegationId
+          delegationId: "default"
         })
       });
       
@@ -103,8 +96,8 @@ export default function Login({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isMasterAdminEmail && !adminPassword) {
-      toast.error("Se requiere clave para la cuenta de Administrador Maestro");
+    if (!password) {
+      toast.error("Se requiere la clave de acceso");
       return;
     }
 
@@ -115,9 +108,9 @@ export default function Login({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           email: email.trim().toLowerCase(), 
-          password: adminPassword, 
+          password: password, 
           isAdminMode: isMasterAdminEmail,
-          delegationId: currentDelegationId
+          delegationId: "default"
         })
       });
       const data = await res.json();
@@ -184,7 +177,7 @@ export default function Login({
             {isMasterAdminEmail ? "Acceso Maestro (Seguro)" : "Acceso de Personal Autorizado"}
           </CardTitle>
           <CardDescription className={`font-bold uppercase tracking-widest ${isMasterAdminEmail ? 'text-white/80 drop-shadow-[0_0_3px_white] text-[9px] md:text-[11px]' : 'text-white/60 text-[8px] md:text-[10px]'}`}>
-            {isMasterAdminEmail ? "Se requiere verificación de identidad" : "Identificación por correo registrado"}
+            Identificación de Seguridad
           </CardDescription>
         </CardHeader>
         <CardContent className="p-6 md:p-8">
@@ -209,11 +202,8 @@ export default function Login({
                 <div className="space-y-2 animate-in slide-in-from-top-2 duration-300">
                   <div className="flex justify-between items-center px-1">
                     <Label htmlFor="pass" className="text-[9px] md:text-[10px] uppercase font-black tracking-widest text-slate-400">
-                      Clave de Acceso (Solo Admins)
+                      Clave de Acceso
                     </Label>
-                    {!isMasterAdminEmail && (
-                      <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter">Cocinero: No requiere clave</span>
-                    )}
                   </div>
                   <div className="relative group">
                     <Lock className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${isMasterAdminEmail ? 'text-amber-500' : 'text-slate-400 group-focus-within:text-indigo-600'}`} />
@@ -222,8 +212,9 @@ export default function Login({
                       type={showPassword ? "text" : "password"} 
                       placeholder="••••••••" 
                       className={`pl-12 pr-12 border-slate-200 dark:border-slate-700 rounded-xl md:rounded-2xl h-12 md:h-14 bg-slate-50 dark:bg-slate-800 transition-all text-sm md:text-base text-slate-900 dark:text-slate-100 ${isMasterAdminEmail ? 'focus-visible:ring-amber-500 border-amber-200' : 'focus-visible:ring-indigo-500'}`}
-                      value={adminPassword}
-                      onChange={(e) => setAdminPassword(e.target.value)}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
                     />
                     <button
                       type="button"
@@ -245,7 +236,7 @@ export default function Login({
                 {isAuthenticating ? (
                   <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
                 ) : (
-                  isMasterAdminEmail ? "Acceso Maestro" : "Ingresar con Clave"
+                  "Iniciar Sesión"
                 )}
               </Button>
 
@@ -253,8 +244,9 @@ export default function Login({
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-slate-200"></div>
                 </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-slate-400 text-[8px] md:text-[10px] font-bold uppercase tracking-widest">O entrar con</span>
+                <div className="relative flex flex-col justify-center text-sm items-center gap-1">
+                  <span className="px-2 bg-white text-slate-400 text-[8px] md:text-[10px] font-bold uppercase tracking-widest">O entra con tu pasaporte digital</span>
+                  <span className="text-[10px] text-slate-400 font-medium px-2 bg-white">(Para usuarios nuevos o si no tienes contraseña fija)</span>
                 </div>
               </div>
 
@@ -312,6 +304,66 @@ export default function Login({
           INTENDENCIA AUTONOMA Cyber-Security Hardened V5.0
         </p>
       </div>
+
+      {/* Install Guide Dialog for iOS/Unsupported */}
+      <Dialog open={showInstallGuide} onOpenChange={setShowInstallGuide}>
+        <DialogContent className="max-w-md rounded-3xl p-0 border-none shadow-2xl bg-white overflow-hidden">
+          <DialogHeader className="p-6 bg-gradient-to-br from-emerald-500 to-teal-700 text-white relative">
+            <div className="absolute top-4 right-4 bg-white/20 p-2 rounded-full backdrop-blur-sm">
+              <Download className="w-5 h-5 text-white" />
+            </div>
+            <DialogTitle className="text-xl md:text-2xl font-black mb-2">Instalar Aplicación</DialogTitle>
+            <DialogDescription className="text-emerald-50 font-medium">
+              Obtén acceso rápido y seguro directo desde tu pantalla de inicio.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-6 md:p-8 space-y-6">
+            
+            {/* iOS Instructions */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400 border-b pb-2">Para usuarios de iPhone / iPad</h3>
+              <div className="space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="bg-slate-100 p-2.5 rounded-xl shrink-0 mt-1 shadow-inner border border-slate-200/50">
+                    <Share className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900">1. Toca "Compartir"</h4>
+                    <p className="text-sm text-slate-500 leading-snug">Busca el ícono de compartir en el menú inferior de tu navegador Safari.</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start gap-4">
+                  <div className="bg-slate-100 p-2.5 rounded-xl shrink-0 mt-1 shadow-inner border border-slate-200/50">
+                    <PlusSquare className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900">2. Añadir a pantalla de inicio</h4>
+                    <p className="text-sm text-slate-500 leading-snug">Desliza hacia abajo en el menú y selecciona "Añadir a pantalla de inicio".</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Android / PC Instructions */}
+             <div className="space-y-3 pt-4 border-t border-slate-100">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-slate-400">Android / PC</h3>
+              <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                Si no apareció el mensaje automático, busca el ícono de <strong>Instalar Aplicación</strong> en la barra de direcciones de tu navegador, o abre el menú de opciones (tres puntos) y selecciona <strong>Instalar aplicación</strong>.
+              </p>
+            </div>
+            
+          </div>
+          <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100">
+            <Button 
+              className="w-full h-12 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold tracking-wide" 
+              onClick={() => setShowInstallGuide(false)}
+            >
+              Entendido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
 
   );

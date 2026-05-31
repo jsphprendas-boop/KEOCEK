@@ -19,24 +19,30 @@ export async function apiFetch(url: string, options: RequestInit = {}) {
     "x-user-email": userEmail
   };
 
-  const response = await fetch(url, { ...options, headers });
-  
-  const contentType = response.headers.get("content-type");
-  const isJson = contentType && contentType.includes("application/json");
+  try {
+    const response = await fetch(url, { ...options, headers });
+    
+    const contentType = response.headers.get("content-type");
+    const isJson = contentType && contentType.includes("application/json");
 
-  if (!response.ok) {
-    let errorMsg = `HTTP error! status: ${response.status}`;
-    if (isJson) {
-      const errorData = await response.json().catch(() => ({}));
-      errorMsg = errorData.error || errorMsg;
+    if (!response.ok) {
+      let errorMsg = `HTTP error! status: ${response.status}`;
+      if (isJson) {
+        const errorData = await response.json().catch(() => ({}));
+        errorMsg = errorData.error || errorMsg;
+      }
+      throw new Error(errorMsg);
     }
-    throw new Error(errorMsg);
-  }
 
-  if (isJson) {
-    return response.json();
+    if (isJson) {
+      return response.json();
+    }
+    
+    return {};
+  } catch (e: any) {
+    if (e.message === 'Failed to fetch') {
+      throw new Error(`Error de conexión (vía fetch) a ${url}. Verifique que el servidor esté activo.`);
+    }
+    throw e;
   }
-  
-  // If not JSON but OK, just return empty object or text
-  return {};
 }

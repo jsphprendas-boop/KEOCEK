@@ -9,7 +9,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { toast } from "sonner";
 import { socket, socketEvents } from "@/src/lib/socket";
-import { DBData, User, Delegation } from "./types";
+import { DBData, User } from "./types";
 import { apiFetch } from "./lib/api";
 import { Clock, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,25 +42,41 @@ export default function App() {
   });
   const [dbData, setDbData] = useState<DBData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [notificationHistory, setNotificationHistory] = useState<{message: string, type?: string, timestamp: number}[]>([]);
   const [currentDelegationId, setCurrentDelegationId] = useState<string>("default");
 
-  // Handle delegation change
-  const handleDelegationChange = (id: string) => {
-    // Single delegation mode: always default
-    setCurrentDelegationId("default");
-  };
-
   // We need a ref for the current user to avoid closure staleness in socket listeners
   const userRef = useRef(user);
+  
+  const clearNotifications = () => setNotificationHistory([]);
+  const removeNotification = (ts: number) => setNotificationHistory(prev => prev.filter(n => n.timestamp !== ts));
+
   useEffect(() => {
     userRef.current = user;
   }, [user]);
 
   useEffect(() => {
+    const onConnect = () => {
+      socket.emit(socketEvents.JOIN_DELEGATION, currentDelegationId);
+    };
+
+    socket.on("connect", onConnect);
+
     socket.on(socketEvents.DB_UPDATE, (data: DBData) => {
       setDbData(data);
+
+      // Live verification of ghost users (immediately boot removed users)
+      const currentUser = userRef.current;
+      if (currentUser?.id && currentUser.id !== 'system' && !isSuperAdminEmail(currentUser?.email)) {
+         const actualUser = (data.users || []).find((u: User) => u.id === currentUser.id);
+         if (!actualUser && currentUser.email !== 'jsphprendas@gmail.com') {
+           console.warn("Ghost User Socket Revocation: User not found in delegation list.");
+           handleLogout();
+           toast.error("Tu acceso ha sido revocado y la sesión se ha cerrado inmediatamente.");
+         } else if (actualUser) {
+           setUser(actualUser); // UPDATE: Automatically apply changes to user (like approval or role change)
+         }
+      }
     });
 
     socket.on(socketEvents.NOTIFICATION, (notif: { message: string, type?: string, targetRole?: string, isUrgent?: boolean }) => {
@@ -148,6 +164,12 @@ export default function App() {
       Notification.requestPermission();
     }
 
+    // Global refresh event for offline sync
+    const handleDbRefresh = () => {
+      loadData(currentDelegationId);
+    };
+    window.addEventListener("db:refresh", handleDbRefresh);
+
     // Initial socket join
     socket.emit(socketEvents.JOIN_DELEGATION, currentDelegationId);
 
@@ -155,10 +177,12 @@ export default function App() {
     loadData(currentDelegationId);
 
     return () => {
+      window.removeEventListener("db:refresh", handleDbRefresh);
+      socket.off("connect", onConnect);
       socket.off(socketEvents.DB_UPDATE);
       socket.off(socketEvents.NOTIFICATION);
     };
-  }, []);
+  }, [currentDelegationId]);
 
   const loadData = async (delId: string) => {
     try {
@@ -183,13 +207,14 @@ export default function App() {
         return;
       }
       
-      // Only verify users that belong to a specific delegation (marked with u-)
-      if (currentUser?.id && currentUser.id.startsWith('u-')) {
+      // Only verify session records against the actual database users list
+      // This eliminates ghost users who were deleted but bypassed the check because of missing 'u-' prefix
+      if (currentUser?.id && currentUser.id !== 'system') {
         const actualUser = (data.users || []).find((u: User) => u.id === currentUser.id);
-        if (!actualUser) {
-          console.warn("User not found in delegation list. Revoking access for:", currentUser.email);
+        if (!actualUser && currentUser.email !== 'jsphprendas@gmail.com') {
+          console.warn("Ghost User Detected: User not found in delegation list. Revoking access for:", currentUser.email);
           handleLogout();
-          toast.error("Su sesión ha expirado o su acceso ha sido revocado.");
+          toast.error("Sesión de usuario revocada. (Cuenta eliminada de la base de datos)");
         }
       }
     } catch(e: any) {
@@ -199,19 +224,11 @@ export default function App() {
   };
 
   const fetchGlobalInfo = async () => {
-     try {
-       const delList = await apiFetch("/api/global/delegations");
-       setDelegations(delList);
-     } catch(e) {
-       console.error("Failed to load delegations", e);
-     }
+     // No global info needed
   };
 
   const handleLogin = React.useCallback((u: User) => {
     setUser(u);
-    if (u.delegationId) {
-      handleDelegationChange(u.delegationId);
-    }
     try { localStorage.setItem("ia_user", JSON.stringify(u)); } catch(e){}
   }, []);
 
@@ -231,13 +248,6 @@ export default function App() {
       
       // SUPER ADMIN BYPASS - IMMEDIATELY STOP IF SUPER ADMIN
       if (isSuperAdminEmail(user.email)) return;
-
-      // Security: If normal admin is in wrong delegation, force correct one
-      if (user.delegationId && user.delegationId !== currentDelegationId) {
-        console.warn("User detected in wrong delegation. Redirecting...");
-        handleDelegationChange(user.delegationId);
-        return;
-      }
 
       const updatedUser = dbData.users.find(u => u.id === user.id);
       if (updatedUser) {
@@ -273,7 +283,7 @@ export default function App() {
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="h-screen w-full flex flex-col items-center justify-center p-6 bg-slate-50 text-center"
+        className="h-dvh w-full flex flex-col items-center justify-center p-6 bg-slate-50 text-center"
       >
         <div className="bg-red-50 p-4 rounded-3xl mb-6 shadow-xl border border-red-100">
           <Building2 className="w-16 h-16 text-red-500 mb-2 mx-auto" />
@@ -291,7 +301,7 @@ export default function App() {
   }
 
   if (!dbData) return (
-    <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
+    <div className="h-dvh w-full flex flex-col items-center justify-center bg-slate-50">
       <div className="w-20 h-20 bg-indigo-600 rounded-3xl mb-6 shadow-2xl shadow-indigo-500/40 flex items-center justify-center animate-bounce">
         <span className="text-white font-black text-2xl">IA</span>
       </div>
@@ -317,9 +327,6 @@ export default function App() {
                 >
                   <Login 
                     onLogin={handleLogin} 
-                    allDelegations={delegations}
-                    currentDelegationId={currentDelegationId}
-                    onDelegationChange={handleDelegationChange}
                   />
                 </motion.div>
               )} 
@@ -334,7 +341,7 @@ export default function App() {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       exit={{ opacity: 0 }}
-                      className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center"
+                      className="min-h-dvh w-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center"
                     >
                       <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center mb-6 animate-pulse shadow-inner">
                         <Clock className="w-10 h-10 text-amber-600" />
@@ -354,13 +361,10 @@ export default function App() {
                             onClick={() => {
                               const checkStatus = async () => {
                                 try {
-                                  const res = await fetch("/api/auth/login", {
-                                    method: "POST",
+                                  const res = await fetch(`/api/users/status/${encodeURIComponent(user.email)}`, {
                                     headers: { 
-                                      "Content-Type": "application/json",
                                       "x-delegation-id": currentDelegationId
-                                    },
-                                    body: JSON.stringify({ email: user.email })
+                                    }
                                   });
                                   const data = await res.json();
                                   if (res.ok) {
@@ -395,27 +399,27 @@ export default function App() {
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.5 }}
-                      className="h-screen w-full overflow-hidden"
+                      className="h-[100dvh] w-full flex flex-col overflow-hidden"
                     >
-                      {user.role === "admin" || user.role === "viewer" ? (
+                      {user.role === "admin" || user.role === "viewer" || user.role === "master_admin" || user.role === "gestion_user" ? (
                         <AdminDashboard 
                           user={user} 
                           data={dbData} 
                           onLogout={handleLogout} 
-                          delegationId={currentDelegationId}
-                          allDelegations={delegations}
-                          onDelegationChange={handleDelegationChange}
                           onGlobalRefresh={() => loadData(currentDelegationId)}
                           notificationHistory={notificationHistory}
+                          onClearNotifications={clearNotifications}
+                          onRemoveNotification={removeNotification}
                         />
                       ) : (
                         <CookDashboard 
                           user={user} 
                           data={dbData} 
                           onLogout={handleLogout} 
-                          delegationId={currentDelegationId} 
                           onRefresh={() => loadData(currentDelegationId)}
                           notificationHistory={notificationHistory}
+                          onClearNotifications={clearNotifications}
+                          onRemoveNotification={removeNotification}
                         />
                       )}
                     </motion.div>

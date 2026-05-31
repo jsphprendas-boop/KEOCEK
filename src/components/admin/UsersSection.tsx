@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { DBData, User, Delegation } from "../../types";
+import { DBData, User } from "../../types";
 import { 
   Users, 
   Trash2, 
@@ -36,11 +36,10 @@ interface UsersSectionProps {
   data: DBData;
   isSuperAdmin?: boolean;
   onGlobalRefresh?: () => void;
-  allDelegations?: Delegation[];
 }
  
-export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh, allDelegations }: UsersSectionProps) {
-  const [userToDelete, setUserToDelete] = useState<{id: string, name: string, delegationId?: string} | null>(null);
+export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh }: UsersSectionProps) {
+  const [userToDelete, setUserToDelete] = useState<{id: string, name: string} | null>(null);
   const [userToEdit, setUserToEdit] = useState<User | null>(null);
   const [globalUsers, setGlobalUsers] = useState<User[]>([]);
   const [showGlobalUsers, setShowGlobalUsers] = useState(false);
@@ -61,30 +60,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
 
   const [userToApprove, setUserToApprove] = useState<User | null>(null);
   const [approveRole, setApproveRole] = useState("cook");
-  const [approveDelegation, setApproveDelegation] = useState("");
-  const [userToTransfer, setUserToTransfer] = useState<{id: string, name: string, currentDelegationId?: string} | null>(null);
-  const [transferDelegationId, setTransferDelegationId] = useState("");
-
-  const handleTransfer = async () => {
-    if (!userToTransfer || !transferDelegationId) return;
-
-    try {
-      await apiFetch(`/api/admin/users/transfer`, {
-        method: "POST",
-        body: JSON.stringify({ 
-          userId: userToTransfer.id,
-          sourceDelegationId: userToTransfer.currentDelegationId,
-          targetDelegationId: transferDelegationId 
-        })
-      });
-      toast.success("Usuario transferido exitosamente");
-      setUserToTransfer(null);
-      setTransferDelegationId("");
-      if (onGlobalRefresh) onGlobalRefresh();
-    } catch (e: any) {
-      toast.error(e.message || "Error al transferir usuario");
-    }
-  };
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!isMasterAdmin) {
@@ -122,7 +97,7 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
     try {
       await apiFetch(`/api/users/${userToEdit.id}/update-profile`, {
         method: "POST",
-        body: JSON.stringify({ firstName: editFirstName, lastName: editLastName })
+        body: JSON.stringify({ firstName: editFirstName, lastName: editLastName, password: editPassword })
       });
       toast.success("Información actualizada correctamente");
       setUserToEdit(null);
@@ -177,6 +152,26 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
           <p className="text-[10px] md:text-xs text-slate-500">Administre los accesos y registros del personal operativo</p>
         </div>
         <div className="flex items-center gap-2">
+          {(isMasterAdmin || isSuperAdmin) && (
+            <Button 
+              variant="outline"
+              size="sm"
+              className="text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700 font-bold text-[10px] md:text-xs rounded-xl shadow-sm h-8 md:h-9"
+              onClick={async () => {
+                if (window.confirm("¿Forzar limpieza y revocar acceso a todos los usuarios fantasmas inmediatamente?")) {
+                  try {
+                    await apiFetch("/api/admin/users/sync-network", { method: "POST" });
+                    toast.success("Red sincronizada. Todas las sesiones fantasmas han sido revocadas.");
+                  } catch (e: any) {
+                    toast.error(e.message || "Error al sincronizar red");
+                  }
+                }
+              }}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+              Purgar Fantasmas
+            </Button>
+          )}
         </div>
       </div>
 
@@ -283,7 +278,7 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
                       <Button 
                         variant="outline" 
                         className="h-8 md:h-9 text-[10px] md:text-xs font-bold text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 hover:border-red-300 w-full rounded-xl"
-                        onClick={() => setUserToDelete({ id: userItem.id, name: userItem.name, delegationId: userItem.delegationId })}
+                        onClick={() => setUserToDelete({ id: userItem.id, name: userItem.name })}
                       >
                         <Trash2 className="w-3 h-3 md:w-3.5 md:h-3.5 mr-2" /> Eliminar Acceso
                       </Button>
@@ -325,21 +320,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
                 <option value="viewer">Usuario Gestión</option>
               </select>
             </div>
-            {isSuperAdmin && (
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Delegación Asignada</Label>
-                <select 
-                  value={approveDelegation}
-                  onChange={(e) => setApproveDelegation(e.target.value)}
-                  className="w-full rounded-xl bg-slate-50 border-slate-200 focus:ring-emerald-500 h-12 text-sm font-bold pl-4"
-                >
-                  <option value="">Seleccionar Sede...</option>
-                  {allDelegations?.map((d: any) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
           <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2">
             <Button variant="ghost" onClick={() => setUserToApprove(null)} className="flex-1 rounded-xl h-12 font-bold text-slate-500 uppercase tracking-widest text-xs">
@@ -350,52 +330,6 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
               className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/20 rounded-xl h-12 font-bold uppercase tracking-widest text-xs"
             >
               Aprobar Acceso
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!userToTransfer} onOpenChange={(open) => !open && setUserToTransfer(null)}>
-        <DialogContent className="border-none rounded-2xl shadow-2xl p-0 overflow-hidden max-w-md bg-white">
-          <DialogHeader className="bg-indigo-600 text-white p-6">
-            <DialogTitle className="text-lg font-black tracking-tight flex items-center gap-2">
-              <Building2 className="w-6 h-6" /> Transferir Usuario
-            </DialogTitle>
-            <DialogDescription className="text-indigo-100 text-xs font-bold uppercase tracking-widest mt-1">
-              Mover a {userToTransfer?.name} a otra intendencia
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-5">
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Delegación Destino</Label>
-              <select 
-                value={transferDelegationId}
-                onChange={(e) => setTransferDelegationId(e.target.value)}
-                className="w-full rounded-xl bg-slate-50 border-slate-200 focus:ring-indigo-500 h-12 text-sm font-bold pl-4"
-              >
-                <option value="">Seleccionar Sede...</option>
-                {allDelegations?.map((d: any) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 text-center">Sede Actual</p>
-              <p className="text-sm font-bold text-slate-700 text-center">
-                {allDelegations?.find(d => d.id === userToTransfer?.currentDelegationId)?.name || "Sin delegación"}
-              </p>
-            </div>
-          </div>
-          <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2">
-            <Button variant="ghost" onClick={() => setUserToTransfer(null)} className="flex-1 rounded-xl h-12 font-bold text-slate-500 uppercase tracking-widest text-xs">
-              Cancelar
-            </Button>
-            <Button 
-              onClick={handleTransfer} 
-              disabled={!transferDelegationId}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-500/20 rounded-xl h-12 font-bold uppercase tracking-widest text-xs"
-            >
-              Confirmar Transferencia
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -485,19 +419,17 @@ export default function UsersSection({ user, data, isSuperAdmin, onGlobalRefresh
                 {editFirstName || "..."} {editLastName || "..."}
               </p>
             </div>
-            {(isMasterAdmin || isSuperAdmin) && (
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Establecer Clave de Acceso Personal (Opcional)</Label>
-                <Input 
-                  type="password"
-                  value={editPassword} 
-                  onChange={e => setEditPassword(e.target.value)}
-                  placeholder="Dejar vacío para usar clave de delegación"
-                  className="rounded-xl bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 text-slate-900 dark:text-slate-100 h-12"
-                />
-                <p className="text-[9px] text-slate-500 italic">Los administradores también pueden usar la clave general de la delegación.</p>
-              </div>
-            )}
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Establecer Contraseña (Requerida en cada ingreso)</Label>
+              <Input 
+                type="password"
+                value={editPassword} 
+                onChange={e => setEditPassword(e.target.value)}
+                placeholder="Ej. abc12345"
+                className="rounded-xl bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 text-slate-900 dark:text-slate-100 h-12"
+              />
+              <p className="text-[9px] text-slate-500 italic">Debe asignarse una contraseña a los usuarios estándares para su ingreso.</p>
+            </div>
           </div>
           <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2">
             <Button variant="ghost" onClick={() => setUserToEdit(null)} className="flex-1 rounded-xl h-12 font-bold text-slate-500 uppercase tracking-widest text-xs">

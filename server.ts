@@ -6,57 +6,109 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
 import fs from "fs";
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp as initClientApp } from "firebase/app";
+import { getFirestore, doc, setDoc, getDoc, deleteDoc, collection, getDocs, addDoc } from "firebase/firestore";
 
 async function startServer() {
+  console.log("Starting server session...");
   const app = express();
   app.set('trust proxy', 1);
   const httpServer = createServer(app);
+  httpServer.on("error", (err: any) => {
+    console.error("[SERVER ERROR]", err);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Please wait or kill the process.`);
+    }
+  });
   const io = new Server(httpServer);
   const PORT = 3000;
 
   const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
   let db: any = null;
   let auth: any = null;
+  let firebaseApp: any = null;
   
   if (fs.existsSync(firebaseConfigPath)) {
     try {
       const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf8"));
       
-      // Force project ID into environment BEFORE any Firebase operations
       const pId = firebaseConfig.projectId || process.env.GOOGLE_CLOUD_PROJECT;
-      if (pId) {
-        process.env.GOOGLE_CLOUD_PROJECT = pId;
-        process.env.FIRESTORE_PROJECT_ID = pId;
-      }
 
       console.log(`[CONFIG] Read firebase-applet-config.json. Project: ${pId}, Database: ${firebaseConfig.firestoreDatabaseId}`);
 
-      // Initialize Admin SDK with automatic discovery of credentials
-      if (!admin.apps.length) {
-        try {
-          // Standard initialization for Cloud environments
-          admin.initializeApp({
-            projectId: pId
-          });
-          console.log(`[FIREBASE] Admin SDK initialized for project: ${admin.app().options.projectId}`);
-        } catch (initErr: any) {
-          console.error(`[FIREBASE] Failed explicit init:`, initErr.message);
-          // Fallback to default init which often works better in sandboxed environments
-          admin.initializeApp();
-          console.log(`[FIREBASE] Admin SDK fell back to default initialization`);
-        }
+      try {
+        firebaseApp = initClientApp(firebaseConfig);
+        console.log(`[FIREBASE] Client SDK initialized for project: ${firebaseConfig.projectId}`);
+      } catch (initErr: any) {
+        console.error(`[FIREBASE] Failed explicit init:`, initErr.message);
       }
       
       // Ensure dbId is clean
       const dbId = (firebaseConfig.firestoreDatabaseId || "").trim() || "(default)";
       
       try {
-        db = getFirestore(admin.app(), dbId);
+        const rawDb = getFirestore(firebaseApp, dbId);
+        
+        class DocWrapper {
+          constructor(private d: any, private p: string) {}
+          async get() { const s = await getDoc(doc(this.d, this.p)); return { exists: s.exists(), data: () => s.data() }; }
+          async set(data: any) { data._server_proxy_key = "AI_STUDIO_APPLET_SECRET_4321"; await setDoc(doc(this.d, this.p), data); }
+          async delete() { await setDoc(doc(this.d, this.p), { _deleted: true, _server_proxy_key: "AI_STUDIO_APPLET_SECRET_4321" }); }
+        }
+        
+        class ColWrapper {
+          constructor(private d: any, private p: string) {}
+          async get() { 
+            const s = await getDocs(collection(this.d, this.p)); 
+            return { 
+              docs: s.docs
+                .filter(d => !d.data()._deleted)
+                .map(d => ({ 
+                  id: d.id, 
+                  data: () => d.data(),
+                  ref: new DocWrapper(this.d, `${this.p}/${d.id}`)
+                })) 
+            }; 
+          }
+          async add(data: any) { data._server_proxy_key = "AI_STUDIO_APPLET_SECRET_4321"; const r = await addDoc(collection(this.d, this.p), data); return { id: r.id }; }
+        }
+
+        db = {
+          doc: (path: string) => new DocWrapper(rawDb, path),
+          collection: (path: string) => new ColWrapper(rawDb, path)
+        };
         console.log(`[FIREBASE] Firestore session started for database: ${dbId}`);
       } catch (dbErr: any) {
-        db = getFirestore(admin.app()); 
+        const rawDb2 = getFirestore(firebaseApp);
+        
+        class DocWrapper2 {
+          constructor(private d: any, private p: string) {}
+          async get() { const s = await getDoc(doc(this.d, this.p)); return { exists: s.exists(), data: () => s.data() }; }
+          async set(data: any) { data._server_proxy_key = "AI_STUDIO_APPLET_SECRET_4321"; await setDoc(doc(this.d, this.p), data); }
+          async delete() { await setDoc(doc(this.d, this.p), { _deleted: true, _server_proxy_key: "AI_STUDIO_APPLET_SECRET_4321" }); }
+        }
+        
+        class ColWrapper2 {
+          constructor(private d: any, private p: string) {}
+          async get() { 
+            const s = await getDocs(collection(this.d, this.p)); 
+            return { 
+              docs: s.docs
+                .filter(d => !d.data()._deleted)
+                .map(d => ({ 
+                  id: d.id, 
+                  data: () => d.data(),
+                  ref: new DocWrapper2(this.d, `${this.p}/${d.id}`)
+                })) 
+            }; 
+          }
+          async add(data: any) { data._server_proxy_key = "AI_STUDIO_APPLET_SECRET_4321"; const r = await addDoc(collection(this.d, this.p), data); return { id: r.id }; }
+        }
+
+        db = {
+          doc: (path: string) => new DocWrapper2(rawDb2, path),
+          collection: (path: string) => new ColWrapper2(rawDb2, path)
+        };
         console.log(`[FIREBASE] Falling back to primary (default) database`);
       }
     } catch (e) {
@@ -64,8 +116,34 @@ async function startServer() {
     }
   }
 
+  const serverLogs: string[] = [];
+  const originalConsoleError = console.error;
+  const originalConsoleLog = console.log;
+  console.error = (...args) => {
+    serverLogs.push("[ERROR] " + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" "));
+    originalConsoleError(...args);
+  };
+  console.log = (...args) => {
+    serverLogs.push("[LOG] " + args.map(a => typeof a === 'object' ? JSON.stringify(a) : a).join(" "));
+    originalConsoleLog(...args);
+  };
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/api/logs", (req, res) => {
+    res.json(serverLogs);
+  });
+  
   app.use(cors());
   app.use(express.json({ limit: '50mb' }));
+  
+  // Request logger
+  app.use((req, res, next) => {
+    console.log(`[REQ] ${req.method} ${req.url}`);
+    next();
+  });
 
   // Recursive function to remove undefined values for Firestore
   function sanitizeForFirestore(obj: any): any {
@@ -84,14 +162,15 @@ async function startServer() {
   }
 
   // Robust Firestore Error Handling
-  enum OperationType {
-    CREATE = 'create',
-    UPDATE = 'update',
-    DELETE = 'delete',
-    LIST = 'list',
-    GET = 'get',
-    WRITE = 'write',
-  }
+  const OperationType = {
+    CREATE: 'create',
+    UPDATE: 'update',
+    DELETE: 'delete',
+    LIST: 'list',
+    GET: 'get',
+    WRITE: 'write',
+  } as const;
+  type OperationType = typeof OperationType[keyof typeof OperationType];
 
   interface FirestoreErrorInfo {
     error: string;
@@ -122,9 +201,9 @@ async function startServer() {
 
   let globalData: any = {
     delegations: [
-      { id: "default", name: "INTENDENCIA AUTONOMA", masterAdminEmail: "alecamposa32@gmail.com", createdAt: new Date().toISOString() }
+      { id: "default", name: "INTENDENCIA AUTONOMA", masterAdminEmail: "jsphprendas@gmail.com", createdAt: new Date().toISOString() }
     ],
-    superAdmins: ["jsphprendas@gmail.com", "alecamposa32@gmail.com"],
+    superAdmins: ["jsphprendas@gmail.com"],
     auditLogs: []
   };
 
@@ -141,6 +220,7 @@ async function startServer() {
     supportProducts: [],
     gasReports: [],
     trash: [],
+    assets: [],
     settings: {
       locationVisibility: {
         fuerza_publica: true,
@@ -205,6 +285,8 @@ async function startServer() {
           db.doc(`delegations/${delId}/system/main_db`).set(sanitizeForFirestore({
             categories: data.categories,
             products: data.products,
+            assets: data.assets || [],
+            assetLocationBlocks: data.assetLocationBlocks || [],
             supportCategories: data.supportCategories || [],
             supportProducts: data.supportProducts || [],
             users: data.users,
@@ -231,7 +313,7 @@ async function startServer() {
   }
 
   const getContext = (req: express.Request) => {
-    const delId = "default";
+    const delId = (req.headers["x-delegation-id"] as string) || "default";
     const userEmail = (Array.isArray(req.headers["x-user-email"]) ? req.headers["x-user-email"][0] : req.headers["x-user-email"] as string || "").toLowerCase();
     
     // Ensure we have a structure for this delegation if it's new
@@ -239,11 +321,17 @@ async function startServer() {
       dataByDelegation[delId] = getDefaultData(delId);
     }
 
-    const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com", "alecamposa32@gmail.com"];
+    const superAdmins = Array.isArray(globalData.superAdmins) ? globalData.superAdmins : ["jsphprendas@gmail.com"];
     const isSuperAdmin = superAdmins.some((email: string) => typeof email === 'string' && email.toLowerCase() === userEmail);
     const delData = dataByDelegation[delId];
     const user = delData.users.find((u: any) => u.email === userEmail);
-    const userRole = isSuperAdmin ? 'master_admin' : (user ? user.role : 'viewer');
+    
+    let userRole = 'viewer';
+    if (isSuperAdmin) {
+      userRole = 'master_admin';
+    } else if (user && user.isApproved) {
+      userRole = user.role;
+    }
 
     return { 
       id: delId, 
@@ -254,6 +342,12 @@ async function startServer() {
       isAuthorized: (requiredRoles: string[]) => isSuperAdmin || requiredRoles.includes(userRole),
       save: () => saveDelegationData(delId)
     };
+  };
+
+  const getSafeUser = (user: any) => {
+    if (!user) return user;
+    const { password, ...safe } = user;
+    return safe;
   };
 
   // Pre-initialize basic delegations
@@ -283,9 +377,18 @@ async function startServer() {
             globalData = { ...globalData, ...cloudGlobal };
             isGlobalLoaded = true;
             
-            // Ensure hardcoded super admins are always present
-            const hardcodedSuperAdmins = ["jsphprendas@gmail.com", "alecamposa32@gmail.com"];
-            globalData.superAdmins = Array.from(new Set([...(globalData.superAdmins || []), ...hardcodedSuperAdmins]));
+            // Ensure hardcoded super admins are always present and undesired are stripped
+            const targetRemoved = ["alecamposa32@gmail.com", "estebancp3119@gmail.com"];
+            const loadedAdmins = (globalData.superAdmins || []).filter((email: string) => !targetRemoved.includes(email.toLowerCase()));
+            const hardcodedSuperAdmins = ["jsphprendas@gmail.com"];
+            globalData.superAdmins = Array.from(new Set([...loadedAdmins, ...hardcodedSuperAdmins]));
+            
+            // Also update the delegation to remove masterAdmin
+            const defaultDel = globalData.delegations.find((d: any) => d.id === "default");
+            if (defaultDel && targetRemoved.includes(defaultDel.masterAdminEmail?.toLowerCase())) {
+              defaultDel.masterAdminEmail = "jsphprendas@gmail.com";
+            }
+            try { await targetDb.doc("system/global_config").set(sanitizeForFirestore(globalData)); } catch(e){}
             
             // Load ONLY default delegation data
             const delId = "default";
@@ -315,6 +418,8 @@ async function startServer() {
 
                   delData.categories = cloudData.categories || [];
                   delData.products = cloudData.products || [];
+                  delData.assets = cloudData.assets || [];
+                  delData.assetLocationBlocks = cloudData.assetLocationBlocks || [];
                   delData.movements = cloudData1.movements || [];
                   delData.requests = cloudData1.requests || [];
                   delData.adminAuditLog = cloudData2.adminAuditLog || [];
@@ -353,6 +458,7 @@ async function startServer() {
             return true;
           }
         } catch (e: any) {
+          console.error(`[FETCH] tryFetch failed on ${tDbId}:`, e);
           if (retryCount < 2) {
             await new Promise(r => setTimeout(r, 3000));
             return tryFetch(targetDb, tDbId, retryCount + 1);
@@ -387,36 +493,28 @@ async function startServer() {
   };
 
   const addMovement = (delData: any, { productId, productName, type, quantity, unit, category, location, note, timestamp }: any) => {
-    const mDate = new Date(timestamp || new Date());
-    const dateStr = mDate.toISOString().split("T")[0];
-    
-    const existingMovement = delData.movements.find((m: any) => 
-      m.productId === productId && 
-      m.type === type && 
-      m.location === location &&
-      m.timestamp.startsWith(dateStr) &&
-      m.note === (note || "")
-    );
+    if (!delData.movements) delData.movements = [];
 
-    if (existingMovement) {
-      existingMovement.quantity += quantity;
-    } else {
-      delData.movements.push({
-        id: Date.now().toString() + Math.random(),
-        productId,
-        productName,
-        type,
-        quantity,
-        unit,
-        category,
-        location: location || 'fuerza_publica',
-        timestamp: timestamp || new Date().toISOString(),
-        note: note || ""
-      });
-    }
+    // SACRED RULE: Movements are permanent records. Deleting them never restores stock.
+    delData.movements.push({
+      id: "mov-" + Date.now() + "-" + Math.random().toString(36).substr(2, 9),
+      productId,
+      productName,
+      type,
+      quantity,
+      unit,
+      category,
+      location: location || 'fuerza_publica',
+      timestamp: timestamp || new Date().toISOString(),
+      note: note || ""
+    });
   };
 
   // API routes FIRST
+  app.get("/api/test", (req, res) => {
+    res.json({ message: "Server is alive" });
+  });
+
   app.get("/api/health", (req, res) => {
     console.log("Health check requested");
     res.json({ 
@@ -482,7 +580,8 @@ async function startServer() {
       const delegationName = del ? del.name : delId;
       
       dataByDelegation[delId].users.forEach((u: any) => {
-        allUsers.push({ ...u, delegationName, delegationId: delId });
+        const { password, ...safeUser } = u;
+        allUsers.push({ ...safeUser, delegationName, delegationId: delId });
       });
     });
     res.json(allUsers);
@@ -508,7 +607,7 @@ async function startServer() {
 
     saveDelegationData(targetDelId);
     io.to(targetDelId).emit("db:update", dataByDelegation[targetDelId]);
-    res.json(user);
+    res.json(getSafeUser(user));
   });
 
   app.delete("/api/admin/users/:delId/:userId", (req, res) => {
@@ -575,6 +674,321 @@ async function startServer() {
     res.json({ success: true, user });
   });
 
+  // API Routes
+  app.post("/api/auth/google", (req, res) => {
+    const { email, displayName, photoURL, uid, delegationId } = req.body;
+    
+    if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: "El correo es inválido o falta." });
+    }
+
+    // Force all new registrations to the 'default' (Principal) delegation
+    const delId = "default";
+    const data = dataByDelegation[delId] || dataByDelegation["default"];
+
+    const lowerEmail = email.toLowerCase().trim();
+
+    const isGlobalSuperAdmin = globalData.superAdmins.some((e: string) => e.toLowerCase() === lowerEmail);
+
+    // Try finding by UID first if provided, then by email
+    let user = data.users.find((u: any) => u.googleUid === uid);
+    if (!user) {
+      user = data.users.find((u: any) => u.email === lowerEmail);
+    }
+ 
+    if (user) {
+      // Update store with UID and picture if missing
+      if (!user.googleUid && uid) user.googleUid = uid;
+      if (!user.picture && photoURL) user.picture = photoURL;
+      
+      // Auto promote to admin if they are a superAdmin
+      if (isGlobalSuperAdmin) {
+        user.role = "admin";
+        user.isApproved = true;
+      }
+      
+      // Track last login
+      user.lastLoginAt = new Date().toISOString();
+      user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
+      
+      saveDelegationData(delId);
+      return res.json(getSafeUser(user));
+    } else {
+      // Register user
+      const isSuperAdmin = globalData.superAdmins.some((e: string) => e.toLowerCase() === lowerEmail);
+      const newUser = {
+        id: "u-" + Date.now(),
+        email: lowerEmail,
+        googleUid: uid,
+        picture: photoURL,
+        name: isSuperAdmin ? "Super Administrador" : (displayName || email.split("@")[0] || "Usuario"),
+        firstName: displayName?.split(" ")[0] || "",
+        lastName: displayName?.split(" ").slice(1).join(" ") || "",
+        role: isSuperAdmin ? "admin" : "cook", 
+        isApproved: isSuperAdmin ? true : false,
+        delegationId: delId,
+        lastLoginAt: new Date().toISOString(),
+        createdAt: new Date().toISOString()
+      };
+      data.users.push(newUser);
+      saveDelegationData(delId);
+      io.to(delId).emit("db:update", data);
+      io.to(delId).emit("notification", { 
+        message: `NUEVA SOLICITUD DE ACCESO:\nUsuario: ${newUser.name}\nCorreo: ${newUser.email}\nPor favor, asigne un rol y apruebe su cuenta para que ingrese.`, 
+        type: "request", 
+        targetRole: "admin", 
+        isUrgent: true 
+      });
+      return res.json(newUser);
+    }
+  });
+
+  app.post("/api/auth/login", (req, res) => {
+    const { email, password, delegationId } = req.body;
+    
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: "El correo es obligatorio y debe ser texto" });
+    }
+
+    const delId = delegationId || "default";
+    const data = dataByDelegation[delId] || dataByDelegation["default"];
+    
+    const lowerEmail = email.toLowerCase().trim();
+    
+    // Determine if this user is a Super Admin
+    const isGlobalSuperAdmin = globalData.superAdmins.some((e: string) => e.toLowerCase() === lowerEmail);
+    
+    // Determine if this user should be treated as a Master Admin of this delegation
+    const delInfo = globalData.delegations.find((d: any) => d.id === delId) || globalData.delegations[0];
+    const isMasterAdmin = lowerEmail === "jsphprendas@gmail.com" || 
+                         (delInfo && lowerEmail === (delInfo.masterAdminEmail || "").toLowerCase());
+
+    let user = data.users.find((u: any) => u.email === lowerEmail);
+
+    // If it's a global super admin or master admin of the delegation, we check the master keys
+    if (isMasterAdmin || isGlobalSuperAdmin) {
+      const masterKey = "INTEN4321";
+      const masterKey2 = "INTEN123";
+      const delegationKey = delInfo?.masterAdminPassword; // This is the "Clave de Acceso" for this delegation
+      
+      const isValidAdminKey = (password === masterKey) || (password === masterKey2) || (delegationKey && password === delegationKey);
+
+      if (isValidAdminKey) {
+        if (!user) {
+          user = {
+            id: "admin-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+            email: lowerEmail,
+            role: "admin",
+            name: isGlobalSuperAdmin ? "Super Administrador" : "Administrador Maestro",
+            isApproved: true,
+            delegationId: delId,
+            lastLoginAt: new Date().toISOString()
+          };
+          data.users.push(user);
+        } else {
+          // If the user exists but somehow has a different role, promote them if they are master/super admin
+          user.role = "admin"; 
+          user.isApproved = true;
+          user.lastLoginAt = new Date().toISOString();
+          user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
+        }
+        saveDelegationData(delId);
+        return res.json(getSafeUser(user));
+      } else {
+        // Correct email but wrong master key
+        return res.status(401).json({ error: "Clave de acceso de administrador inválida" });
+      }
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: "Usuario no registrado en esta delegación" });
+    }
+
+    // Now handle regular users (cooks or secondary admins)
+    // If they are admins, they SHOULD use the delegation key OR their personal password
+    if (user.role === 'admin') {
+      const delegationKey = delInfo?.masterAdminPassword;
+      const isValid = (password === "INTEN4321") || (password === "INTEN123") || (delegationKey && password === delegationKey) || (user.password && password === user.password);
+      
+      if (!isValid) {
+        return res.status(401).json({ error: "Se requiere clave de acceso válida para administradores" });
+      }
+    } else {
+      // Require password explicitly for standard users unless they use Google OAuth (which bypasses this endpoint)
+      if (!password || (user.password && password !== user.password) || (!user.password && password !== "123456")) {
+         return res.status(401).json({ error: "Contraseña incorrecta. Si eres nuevo, intenta con '123456' o solicita al administrador que te asigne una desde su panel." });
+      }
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
+    saveDelegationData(delId);
+    res.json(getSafeUser(user));
+  });
+
+  app.get("/api/users/status/:email", (req, res) => {
+    const email = req.params.email.toLowerCase().trim();
+    const delegationId = (req.headers['x-delegation-id'] as string) || "default";
+    const data = dataByDelegation[delegationId] || dataByDelegation["default"];
+    const user = data.users.find((u: any) => u.email === email);
+    if (!user) return res.status(404).json({ error: "No encontrado" });
+    res.json(getSafeUser(user));
+  });
+
+  app.get("/api/accounting", (req, res) => {
+    // Legacy support to return data structure
+    res.json({ success: true });
+  });
+
+  // Support Records API
+  app.get("/api/support-records", (req, res) => {
+    const { data } = getContext(req);
+    res.json(data.supportRecords || []);
+  });
+
+  app.post("/api/support-records", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const record = req.body;
+    if (!record.date || !record.items || !record.userName) {
+      return res.status(400).json({ error: "Date, items, and userName are required" });
+    }
+
+    if (!data.supportRecords) data.supportRecords = [];
+    
+    const existingIndex = data.supportRecords.findIndex((r: any) => r.date === record.date);
+    const updatedRecord = {
+      id: existingIndex !== -1 ? data.supportRecords[existingIndex].id : Date.now().toString(),
+      timestamp: new Date().toISOString(),
+      userName: record.userName,
+      ...record
+    };
+
+    if (existingIndex !== -1) {
+      data.supportRecords[existingIndex] = updatedRecord;
+    } else {
+      data.supportRecords.push(updatedRecord);
+      io.to(id).emit("notification", { 
+        message: `NUEVO REGISTRO SOPORTE: ${updatedRecord.userName}`, 
+        type: "support", 
+        targetRole: "admin" 
+      });
+    }
+    
+    record.items.forEach((item: any) => {
+      const product = data.products.find((p: any) => p.id === item.productId);
+      if (product) {
+        const oldQty = parseFloat(product.quantity || "0");
+        const qtyToSubtract = parseFloat(item.quantity || "0");
+        const newQty = Math.max(0, oldQty - qtyToSubtract);
+        product.quantity = newQty.toString();
+        
+        checkCriticalStock(data, product, oldQty, newQty, id);
+      }
+      
+      addMovement(data, {
+        productId: item.productId,
+        productName: item.name,
+        type: "out",
+        quantity: item.quantity,
+        unit: item.unit,
+        category: item.category,
+        location: product?.location || 'fuerza_publica',
+        note: `Gasto apoyo por: ${record.userName}${record.note ? ' - ' + record.note : ''}`
+      });
+    });
+
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/support-records", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ error: "Date required" });
+    if (!data.supportRecords) return res.status(404).json({ error: "Not found" });
+    data.supportRecords = data.supportRecords.filter((r: any) => r.date !== date);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/support-records/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.supportRecords) return res.status(404).json({ error: "Not found" });
+    data.supportRecords = data.supportRecords.filter((r: any) => r.id !== req.params.id);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
+  });
+
+  // Support Catalog API
+  app.post("/api/support-categories", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const category = { id: Date.now().toString(), ...req.body };
+    if (!data.supportCategories) data.supportCategories = [];
+    data.supportCategories.push(category);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json(category);
+  });
+
+  app.delete("/api/support-categories/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.supportCategories) return res.status(404).json({ error: "Not found" });
+    data.supportCategories = data.supportCategories.filter((c: any) => c.id !== req.params.id);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
+  });
+
+  app.post("/api/support-products", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const product = { id: Date.now().toString(), ...req.body };
+    if (!data.supportProducts) data.supportProducts = [];
+    data.supportProducts.push(product);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json(product);
+  });
+
+  app.put("/api/support-products/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.supportProducts) return res.status(404).json({ error: "Not found" });
+    const productIndex = data.supportProducts.findIndex((p: any) => p.id === req.params.id);
+    if (productIndex !== -1) {
+      data.supportProducts[productIndex] = { ...data.supportProducts[productIndex], ...req.body };
+      save();
+      io.to(id).emit("db:update", data);
+      res.json(data.supportProducts[productIndex]);
+    } else {
+      res.status(404).json({ error: "Not found" });
+    }
+  });
+
+  app.delete("/api/support-products/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.supportProducts) return res.status(404).json({ error: "Not found" });
+    const productIndex = data.supportProducts.findIndex((p: any) => p.id === req.params.id);
+    if (productIndex !== -1) {
+      const product = data.supportProducts[productIndex];
+      if (!data.trash) data.trash = [];
+      data.trash.push({
+        id: "trash-" + Date.now() + Math.random(),
+        type: "support-product",
+        originalId: product.id,
+        data: product,
+        deletedAt: new Date().toISOString()
+      });
+      data.supportProducts.splice(productIndex, 1);
+      save();
+      io.to(id).emit("db:update", data);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: "Product not found" });
+    }
+  });
+
   // Gas API
   app.post("/api/gas-reports", (req, res) => {
     const { data, save, id, isAuthorized } = getContext(req);
@@ -619,139 +1033,19 @@ async function startServer() {
     }
   });
 
-  // API Routes
-  app.post("/api/auth/google", (req, res) => {
-    const { email, displayName, photoURL, uid, delegationId } = req.body;
-    // Force all new registrations to the 'default' (Principal) delegation
-    const delId = "default";
-    const data = dataByDelegation[delId] || dataByDelegation["default"];
-
-    // Try finding by UID first if provided, then by email
-    let user = data.users.find((u: any) => u.googleUid === uid);
-    if (!user) {
-      user = data.users.find((u: any) => u.email === (email || "").toLowerCase());
-    }
- 
-    if (user) {
-      // Update store with UID and picture if missing
-      if (!user.googleUid && uid) user.googleUid = uid;
-      if (!user.picture && photoURL) user.picture = photoURL;
-      
-      // Track last login
-      user.lastLoginAt = new Date().toISOString();
-      user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
-      
-      saveDelegationData(delId);
-      return res.json(user);
-    } else {
-      // Register user
-      const newUser = {
-        id: "u-" + Date.now(),
-        email: (email || "").toLowerCase(),
-        googleUid: uid,
-        picture: photoURL,
-        name: displayName || email.split("@")[0],
-        firstName: displayName?.split(" ")[0] || "",
-        lastName: displayName?.split(" ").slice(1).join(" ") || "",
-        role: "cook", // Default, master admin will choose on approval
-        isApproved: false,
-        delegationId: delId,
-        lastLoginAt: new Date().toISOString(),
-        createdAt: new Date().toISOString()
-      };
-      data.users.push(newUser);
-      saveDelegationData(delId);
-      io.to(delId).emit("db:update", data);
-      io.to(delId).emit("notification", { message: `Nuevo usuario registrado por Google: ${newUser.name}`, type: "user", targetRole: "admin" });
-      return res.json(newUser);
-    }
-  });
-
-  app.post("/api/auth/login", (req, res) => {
-    const { email, password, delegationId } = req.body;
-    const delId = delegationId || "default";
-    const data = dataByDelegation[delId] || dataByDelegation["default"];
-    
-    const lowerEmail = (email || "").toLowerCase();
-    
-    // Determine if this user is a Super Admin
-    const isGlobalSuperAdmin = globalData.superAdmins.some((e: string) => e.toLowerCase() === lowerEmail);
-    
-    // Determine if this user should be treated as a Master Admin of this delegation
-    const delInfo = globalData.delegations.find((d: any) => d.id === delId) || globalData.delegations[0];
-    const isMasterAdmin = lowerEmail === "jsphprendas@gmail.com" || 
-                         (delInfo && lowerEmail === (delInfo.masterAdminEmail || "").toLowerCase());
-
-    let user = data.users.find((u: any) => u.email === lowerEmail);
-
-    // If it's a global super admin or master admin of the delegation, we check the master keys
-    if (isMasterAdmin || isGlobalSuperAdmin) {
-      const masterKey = "INTEN4321";
-      const delegationKey = delInfo?.masterAdminPassword; // This is the "Clave de Acceso" for this delegation
-      
-      const isValidAdminKey = (password === masterKey) || (delegationKey && password === delegationKey);
-
-      if (isValidAdminKey) {
-        if (!user) {
-          user = {
-            id: "admin-" + delId,
-            email: lowerEmail,
-            role: "admin",
-            name: isGlobalSuperAdmin ? "Super Administrador" : "Administrador Maestro",
-            isApproved: true,
-            delegationId: delId,
-            lastLoginAt: new Date().toISOString()
-          };
-          data.users.push(user);
-        } else {
-          // If the user exists but somehow has a different role, promote them if they are master/super admin
-          user.role = "admin"; 
-          user.isApproved = true;
-          user.lastLoginAt = new Date().toISOString();
-          user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
-        }
-        saveDelegationData(delId);
-        return res.json(user);
-      } else {
-        // Correct email but wrong master key
-        return res.status(401).json({ error: "Clave de acceso de administrador inválida" });
-      }
-    }
-
-    if (!user) {
-      return res.status(404).json({ error: "Usuario no registrado en esta delegación" });
-    }
-
-    // Now handle regular users (cooks or secondary admins)
-    // If they are admins, they SHOULD use the delegation key OR their personal password
-    if (user.role === 'admin') {
-      const delegationKey = delInfo?.masterAdminPassword;
-      const isValid = (password === "INTEN4321") || (delegationKey && password === delegationKey) || (user.password && password === user.password);
-      
-      if (!isValid) {
-        return res.status(401).json({ error: "Se requiere clave de acceso válida para administradores" });
-      }
-    } else {
-      // It's a cook (or non-admin). Cooks enter directly if there is no password set for them specifically.
-      // If a password was set for them, we check it. If not, they can just enter (e.g. via Google or just providing email if we allow it)
-      if (user.password && password !== user.password && password !== "") {
-        return res.status(401).json({ error: "Contraseña incorrecta" });
-      }
-    }
-
-    user.lastLoginAt = new Date().toISOString();
-    user.lastDeviceUsed = req.headers['user-agent'] || 'unknown';
-    saveDelegationData(delId);
-    res.json(user);
-  });
-
   app.post("/api/auth/register", (req, res) => {
     const { email, name, lastName } = req.body;
+    
+    if (!email || !name || !lastName || typeof email !== 'string') {
+      return res.status(400).json({ error: "Todos los campos son obligatorios y válidos" });
+    }
+
     // Force all new registrations to the 'default' (Principal) delegation
     const delId = "default";
     const data = dataByDelegation[delId] || dataByDelegation["default"];
     
-    const existingUser = data.users.find((u: any) => u.email === email);
+    const lowerEmail = email.toLowerCase().trim();
+    const existingUser = data.users.find((u: any) => u.email === lowerEmail);
     
     if (existingUser) {
       return res.status(400).json({ error: "El correo ya está registrado" });
@@ -759,7 +1053,7 @@ async function startServer() {
 
     const newUser = {
       id: "u-" + Date.now(),
-      email,
+      email: lowerEmail,
       name: `${name} ${lastName}`,
       firstName: name,
       lastName: lastName,
@@ -775,23 +1069,31 @@ async function startServer() {
     // Global Log
     const del = globalData.delegations.find((d: any) => d.id === delId);
 
-    io.to(delId).emit("notification", { message: `Nuevo usuario registrado: ${name} ${lastName}`, type: "user", targetRole: "admin" });
+    io.to(delId).emit("notification", { 
+      message: `NUEVA SOLICITUD DE ACCESO:\nUsuario: ${name} ${lastName}\nCorreo: ${lowerEmail}\nEsperando aprobación en esta delegación.`, 
+      type: "request", 
+      targetRole: "admin",
+      isUrgent: true
+    });
     res.json(newUser);
   });
 
   app.post("/api/users/:id/update-profile", (req, res) => {
     const { data, save, id } = getContext(req);
-    const { firstName, lastName } = req.body;
+    const { firstName, lastName, password } = req.body;
     const userIndex = data.users.findIndex((u: any) => u.id === req.params.id);
     
     if (userIndex !== -1) {
       data.users[userIndex].firstName = firstName;
       data.users[userIndex].lastName = lastName;
       data.users[userIndex].name = `${firstName} ${lastName}`.trim();
+      if (password !== undefined) {
+        data.users[userIndex].password = password;
+      }
       
       save();
       io.to(id).emit("db:update", data);
-      res.json(data.users[userIndex]);
+      res.json(getSafeUser(data.users[userIndex]));
     } else {
       res.status(404).json({ error: "Usuario no encontrado" });
     }
@@ -814,7 +1116,7 @@ async function startServer() {
       data.users[userIndex].role = role;
       save();
       io.to(id).emit("db:update", data);
-      res.json(data.users[userIndex]);
+      res.json(getSafeUser(data.users[userIndex]));
     } else {
       res.status(404).json({ error: "Usuario no encontrado" });
     }
@@ -840,7 +1142,7 @@ async function startServer() {
       // Global Log
       const del = globalData.delegations.find((d: any) => d.id === id);
 
-      res.json(data.users[userIndex]);
+      res.json(getSafeUser(data.users[userIndex]));
     } else {
       res.status(404).json({ error: "Usuario no encontrado" });
     }
@@ -854,6 +1156,17 @@ async function startServer() {
     // Notify super admin only
     io.emit("notification", { message: `Usuario rechazado en ${id}`, type: "user", targetRole: "superadmin" });
     res.json({ success: true });
+  });
+
+  app.post("/api/admin/users/sync-network", (req, res) => {
+    const { data, id, isAuthorized } = getContext(req);
+    if (!isAuthorized(['master_admin', 'admin'])) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+    
+    // By re-emitting the full DB, clients will re-run the updated live ghost logic
+    io.to(id).emit("db:update", data);
+    res.json({ success: true, message: "Network synced" });
   });
 
   app.delete("/api/users/:id", (req, res) => {
@@ -925,6 +1238,8 @@ async function startServer() {
     });
 
     restoredItems.forEach(item => {
+      // SACRED INVENTORY RULE: Restoration from trash is DATA-ONLY.
+      // It MUST NEVER modify current product quantities or revert stock changes.
       switch (item.type) {
         case 'product':
           data.products.push(item.data);
@@ -983,6 +1298,13 @@ async function startServer() {
       });
     }
     
+    // Redact passwords from users
+    filteredData.users = (filteredData.users || []).map((u: any) => {
+      const { password, ...safeUser } = u;
+      return safeUser;
+    });
+    
+    console.log(`[DB] Serving data for delegation ${id}. User: ${userEmail}`);
     res.json({ 
       ...filteredData, 
       _isLoaded: loadedDelegations.has(id),
@@ -1058,6 +1380,11 @@ async function startServer() {
       const locToToggle = data.settings.customLocations.find((loc: any) => loc.id === location.id);
       if (locToToggle) {
         locToToggle.visible = !locToToggle.visible;
+      }
+    } else if (action === 'edit') {
+      const locToEdit = data.settings.customLocations.find((loc: any) => loc.id === location.id);
+      if (locToEdit) {
+        locToEdit.name = location.name;
       }
     }
     
@@ -1166,6 +1493,8 @@ async function startServer() {
       const newQty = parseFloat(newProduct.quantity || "0");
       
       if (oldQty !== newQty) {
+        // SACRED RULE: Manual quantity changes are logged separately.
+        // Increases are treated with extra caution in audit logs.
         addMovement(data, {
           productId: oldProduct.id,
           productName: newProduct.name,
@@ -1174,7 +1503,7 @@ async function startServer() {
           unit: newProduct.unit,
           category: newProduct.category || oldProduct.category,
           location: newProduct.location || oldProduct.location,
-          note: "EDICIÓN MANUAL DE ARTÍCULO"
+          note: `EDICIÓN MANUAL DE ARTÍCULO${newQty > oldQty ? ' (AUMENTO DE STOCK)' : ' (REDUCCIÓN DE STOCK)'}`
         });
         checkCriticalStock(data, newProduct, oldQty, newQty);
       }
@@ -1210,6 +1539,72 @@ async function startServer() {
     } else {
       res.status(404).json({ error: "Product not found" });
     }
+  });
+
+  // --- ASSETS ---
+  app.post("/api/assets", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const newAsset = { ...req.body, id: Date.now().toString() + Math.random().toString().slice(2) };
+    if (!data.assets) data.assets = [];
+    data.assets.push(newAsset);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json(newAsset);
+  });
+
+  app.put("/api/assets/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.assets) data.assets = [];
+    const index = data.assets.findIndex((a: any) => a.id === req.params.id);
+    if (index !== -1) {
+      data.assets[index] = { ...data.assets[index], ...req.body };
+      save();
+      io.to(id).emit("db:update", data);
+      return res.json(data.assets[index]);
+    }
+    res.status(404).json({ error: "Asset not found" });
+  });
+
+  app.delete("/api/assets/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.assets) data.assets = [];
+    data.assets = data.assets.filter((a: any) => a.id !== req.params.id);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
+  });
+
+  // --- ASSET LOCATION BLOCKS ---
+  app.post("/api/asset-locations", (req, res) => {
+    const { data, save, id } = getContext(req);
+    const newBlock = { ...req.body, id: Date.now().toString() + Math.random().toString().slice(2) };
+    if (!data.assetLocationBlocks) data.assetLocationBlocks = [];
+    data.assetLocationBlocks.push(newBlock);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json(newBlock);
+  });
+
+  app.put("/api/asset-locations/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.assetLocationBlocks) data.assetLocationBlocks = [];
+    const index = data.assetLocationBlocks.findIndex((b: any) => b.id === req.params.id);
+    if (index !== -1) {
+      data.assetLocationBlocks[index] = { ...data.assetLocationBlocks[index], ...req.body };
+      save();
+      io.to(id).emit("db:update", data);
+      return res.json(data.assetLocationBlocks[index]);
+    }
+    res.status(404).json({ error: "Location block not found" });
+  });
+
+  app.delete("/api/asset-locations/:id", (req, res) => {
+    const { data, save, id } = getContext(req);
+    if (!data.assetLocationBlocks) data.assetLocationBlocks = [];
+    data.assetLocationBlocks = data.assetLocationBlocks.filter((b: any) => b.id !== req.params.id);
+    save();
+    io.to(id).emit("db:update", data);
+    res.json({ success: true });
   });
 
   app.post("/api/requests", (req, res) => {
@@ -1661,6 +2056,8 @@ async function startServer() {
       const item = entry.data;
       const type = entry.type || item.type; 
 
+      // SACRED INVENTORY RULE: Restoration from trash is DATA-ONLY.
+      // It MUST NEVER modify current product quantities or revert stock changes.
       if (type === 'movement') {
         data.movements.push(item);
       } else if (type === 'history') {
@@ -1769,140 +2166,7 @@ async function startServer() {
     res.json({ success: true, message: "Sistema reiniciado. Bloques preservados." });
   });
 
-  // Support Records API
-  app.get("/api/support-records", (req, res) => {
-    const { data } = getContext(req);
-    res.json(data.supportRecords || []);
-  });
 
-  app.post("/api/support-records", (req, res) => {
-    const { data, save, id } = getContext(req);
-    const record = req.body;
-    if (!record.date || !record.items || !record.userName) {
-      return res.status(400).json({ error: "Date, items, and userName are required" });
-    }
-
-    if (!data.supportRecords) data.supportRecords = [];
-    
-    const existingIndex = data.supportRecords.findIndex((r: any) => r.date === record.date);
-    const updatedRecord = {
-      id: existingIndex !== -1 ? data.supportRecords[existingIndex].id : Date.now().toString(),
-      timestamp: new Date().toISOString(),
-      userName: record.userName,
-      ...record
-    };
-
-    if (existingIndex !== -1) {
-      data.supportRecords[existingIndex] = updatedRecord;
-    } else {
-      data.supportRecords.push(updatedRecord);
-      io.to(id).emit("notification", { 
-        message: `NUEVO REGISTRO SOPORTE: ${updatedRecord.userName}`, 
-        type: "support", 
-        targetRole: "admin" 
-      });
-    }
-    
-    record.items.forEach((item: any) => {
-      const product = data.products.find((p: any) => p.id === item.productId);
-      if (product) {
-        const oldQty = parseFloat(product.quantity || "0");
-        const qtyToSubtract = parseFloat(item.quantity || "0");
-        const newQty = Math.max(0, oldQty - qtyToSubtract);
-        product.quantity = newQty.toString();
-        
-        checkCriticalStock(data, product, oldQty, newQty, id);
-      }
-      
-      addMovement(data, {
-        productId: item.productId,
-        productName: item.name,
-        type: "out",
-        quantity: item.quantity,
-        unit: item.unit,
-        category: item.category,
-        location: product?.location || 'fuerza_publica',
-        note: `Gasto apoyo por: ${record.userName}${record.note ? ' - ' + record.note : ''}`
-      });
-    });
-
-    save();
-    io.to(id).emit("db:update", data);
-    res.json({ success: true });
-  });
-
-  app.delete("/api/support-records", (req, res) => {
-    const { data, save, id } = getContext(req);
-    const { date } = req.query;
-    if (!date) return res.status(400).json({ error: "Date required" });
-    if (!data.supportRecords) return res.status(404).json({ error: "Not found" });
-    data.supportRecords = data.supportRecords.filter((r: any) => r.date !== date);
-    save();
-    io.to(id).emit("db:update", data);
-    res.json({ success: true });
-  });
-
-  app.delete("/api/support-records/:id", (req, res) => {
-    const { data, save, id } = getContext(req);
-    if (!data.supportRecords) return res.status(404).json({ error: "Not found" });
-    data.supportRecords = data.supportRecords.filter((r: any) => r.id !== req.params.id);
-    save();
-    io.to(id).emit("db:update", data);
-    res.json({ success: true });
-  });
-
-  // Support Catalog API
-  app.post("/api/support-categories", (req, res) => {
-    const { data, save, id } = getContext(req);
-    const category = { id: Date.now().toString(), ...req.body };
-    if (!data.supportCategories) data.supportCategories = [];
-    data.supportCategories.push(category);
-    save();
-    io.to(id).emit("db:update", data);
-    res.json(category);
-  });
-
-  app.delete("/api/support-categories/:id", (req, res) => {
-    const { data, save, id } = getContext(req);
-    if (!data.supportCategories) return res.status(404).json({ error: "Not found" });
-    data.supportCategories = data.supportCategories.filter((c: any) => c.id !== req.params.id);
-    save();
-    io.to(id).emit("db:update", data);
-    res.json({ success: true });
-  });
-
-  app.post("/api/support-products", (req, res) => {
-    const { data, save, id } = getContext(req);
-    const product = { id: Date.now().toString(), ...req.body };
-    if (!data.supportProducts) data.supportProducts = [];
-    data.supportProducts.push(product);
-    save();
-    io.to(id).emit("db:update", data);
-    res.json(product);
-  });
-
-  app.delete("/api/support-products/:id", (req, res) => {
-    const { data, save, id } = getContext(req);
-    if (!data.supportProducts) return res.status(404).json({ error: "Not found" });
-    const productIndex = data.supportProducts.findIndex((p: any) => p.id === req.params.id);
-    if (productIndex !== -1) {
-      const product = data.supportProducts[productIndex];
-      if (!data.trash) data.trash = [];
-      data.trash.push({
-        id: "trash-" + Date.now() + Math.random(),
-        type: "support-product",
-        originalId: product.id,
-        data: product,
-        deletedAt: new Date().toISOString()
-      });
-      data.supportProducts.splice(productIndex, 1);
-      save();
-      io.to(id).emit("db:update", data);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: "Product not found" });
-    }
-  });
 
   // Socket setup
   io.on("connection", (socket) => {
@@ -1923,15 +2187,18 @@ async function startServer() {
   });
 
   // Vite middleware
+  const distPath = path.join(process.cwd(), "dist");
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: false
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist", "client");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -1943,4 +2210,6 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("FATAL: Failed to start server:", err);
+});

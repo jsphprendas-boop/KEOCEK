@@ -1,0 +1,534 @@
+{
+  "products": [
+    {
+      "refillType": "global",
+      "id": "1778468852306",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "quantity": "228",
+      "location": "fuerza_publica",
+      "unit": "Bolsas",
+      "name": "Arroz"
+    },
+    {
+      "unit": "Bolsas",
+      "name": "Frijoles",
+      "refillType": "global",
+      "id": "1778468869515",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "67"
+    },
+    {
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "quantity": "393",
+      "location": "fuerza_publica",
+      "refillType": "global",
+      "id": "1778468881602",
+      "unit": "Bolsas",
+      "name": "Azucar"
+    },
+    {
+      "unit": "Litros",
+      "name": "Aceite",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "240",
+      "refillType": "global",
+      "id": "1778468892054"
+    },
+    {
+      "name": "Café",
+      "unit": "",
+      "id": "1778468898808",
+      "refillType": "global",
+      "quantity": "94",
+      "location": "fuerza_publica",
+      "category": "Abarrotes",
+      "expiryDate": ""
+    },
+    {
+      "name": "Cocoa dulce",
+      "unit": "Bolsas",
+      "id": "1778468909440",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "16",
+      "expiryDate": "",
+      "category": "Abarrotes"
+    },
+    {
+      "unit": "Bolsas",
+      "name": "Sal",
+      "refillType": "global",
+      "id": "1778468917479",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "25"
+    },
+    {
+      "refillType": "global",
+      "id": "1778468931160",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "38",
+      "unit": "Unidad",
+      "name": "Spagueti"
+    },
+    {
+      "id": "1778468962106",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "96",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "name": "Hongos rebanados",
+      "unit": "Latas"
+    },
+    {
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "quantity": "153",
+      "location": "fuerza_publica",
+      "refillType": "global",
+      "id": "1778468974214",
+      "unit": "Latas",
+      "name": "Garbanzos"
+    },
+    {
+      "id": "1778468983884",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "235",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "name": "Chiles jalapeños",
+      "unit": "Latas"
+    },
+    {
+      "refillType": "global",
+      "id": "1778468997894",
+      "isHidden": true,
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "location": "fuerza_publica",
+      "name": "Vegetales mixtos",
+      "quantity": "223",
+      "unit": "Latas"
+    },
+    {
+      "name": "Maiz dulce",
+      "unit": "Latas",
+      "location": "fuerza_publica",
+      "quantity": "51",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "id": "1778469012515",
+      "refillType": "global"
+    },
+    {
+      "unit": "Bolsa",
+      "name": "Gelatina vigui",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "31",
+      "refillType": "global",
+      "id": "1778469026995"
+    },
+    {
+      "unit": "Caja",
+      "name": "Geltina rika",
+      "refillType": "global",
+      "id": "1778469043284",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "quantity": "240",
+      "location": "fuerza_publica"
+    },
+    {
+      "id": "1778469049793",
+      "refillType": "global",
+      "quantity": "11",
+      "location": "fuerza_publica",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "name": "Numar",
+      "unit": ""
+    },
+    {
+      "refillType": "global",
+      "id": "1778469066571",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "quantity": "41",
+      "location": "fuerza_publica",
+      "unit": "Uds",
+      "name": "Consome de pollo"
+    },
+    {
+      "unit": "Uds",
+      "name": "Consome de res",
+      "refillType": "global",
+      "id": "1778469075912",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "132"
+    },
+    {
+      "id": "1778469084911",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "100",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "name": "Tomillo molido",
+      "unit": "Uds"
+    },
+    {
+      "name": "Dulce molido",
+      "unit": "Bolsa",
+      "id": "1778469096823",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "40",
+      "category": "Abarrotes",
+      "expiryDate": ""
+    },
+    {
+      "name": "Cereal",
+      "unit": "Caja",
+      "location": "fuerza_publica",
+      "quantity": "20",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "id": "1778469107776",
+      "refillType": "global"
+    },
+    {
+      "name": "Achiote",
+      "unit": "Uds",
+      "location": "fuerza_publica",
+      "quantity": "82",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "id": "1778469121912",
+      "refillType": "global"
+    },
+    {
+      "unit": "Cajita",
+      "name": "Jalea de guayaba",
+      "refillType": "global",
+      "id": "1778469135020",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "35"
+    },
+    {
+      "name": "Salsa inglesa",
+      "unit": "Uds",
+      "location": "fuerza_publica",
+      "quantity": "48",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "id": "1778473608910",
+      "refillType": "global"
+    },
+    {
+      "unit": "Uds",
+      "name": "Salsa soja tioo china",
+      "refillType": "global",
+      "id": "1778473635519",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "location": "fuerza_publica",
+      "quantity": "54"
+    },
+    {
+      "name": "Mostaza",
+      "unit": "Uds",
+      "id": "1778473702423",
+      "refillType": "global",
+      "quantity": "4",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "category": "Abarrotes"
+    },
+    {
+      "unit": "Uds",
+      "name": "Chop suey ",
+      "refillType": "global",
+      "id": "1778473723738",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "location": "fuerza_publica",
+      "quantity": "56"
+    },
+    {
+      "name": "Emoanizador de mariscos",
+      "unit": "Uds",
+      "quantity": "3",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "id": "1778473742709",
+      "refillType": "global"
+    },
+    {
+      "name": "Avena molida",
+      "unit": "Uds",
+      "quantity": "6",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "id": "1778473758670",
+      "refillType": "global"
+    },
+    {
+      "id": "1778473778186",
+      "refillType": "global",
+      "quantity": "88",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "name": "Avena en hojuelas",
+      "unit": "Uds"
+    },
+    {
+      "name": "Leche pinito",
+      "unit": "Uds",
+      "location": "fuerza_publica",
+      "quantity": "9",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "id": "1778473793789",
+      "refillType": "global"
+    },
+    {
+      "id": "1778473814772",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "41",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "name": "Caracolitos",
+      "unit": "Uds"
+    },
+    {
+      "unit": "Uds",
+      "name": "Spagueti",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "38",
+      "refillType": "global",
+      "id": "1778473837409"
+    },
+    {
+      "name": "Naturss",
+      "unit": "Uds",
+      "id": "1778473855560",
+      "refillType": "global",
+      "quantity": "27",
+      "location": "fuerza_publica",
+      "category": "Abarrotes",
+      "expiryDate": ""
+    },
+    {
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "quantity": "99",
+      "location": "fuerza_publica",
+      "refillType": "global",
+      "id": "1778473872211",
+      "unit": "Uds",
+      "name": "Oregano molida"
+    },
+    {
+      "id": "1778473898091",
+      "refillType": "global",
+      "quantity": "147",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "name": "Sazonador mixto",
+      "unit": "Uds"
+    },
+    {
+      "id": "1778473933499",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "quantity": "120",
+      "category": "Lacteos",
+      "expiryDate": "",
+      "name": "Leche liquida",
+      "unit": "Uds"
+    },
+    {
+      "quantity": "529",
+      "unit": "Paquetes",
+      "refillType": "global",
+      "id": "1778473979369",
+      "expiryDate": "",
+      "isHidden": true,
+      "category": "Galletas",
+      "location": "fuerza_publica",
+      "name": "Galletas soda"
+    },
+    {
+      "name": "Galleta chicky",
+      "expiryDate": "",
+      "category": "Galletas",
+      "isHidden": true,
+      "location": "fuerza_publica",
+      "refillType": "global",
+      "id": "1778474008642",
+      "unit": "Uds",
+      "quantity": "852"
+    },
+    {
+      "name": "Galleta soda de especias",
+      "location": "fuerza_publica",
+      "category": "Galletas",
+      "expiryDate": "",
+      "isHidden": true,
+      "id": "1778474032379",
+      "refillType": "global",
+      "unit": "Uds",
+      "quantity": "144"
+    },
+    {
+      "id": "1778474071923",
+      "refillType": "global",
+      "location": "fuerza_publica",
+      "expiryDate": "",
+      "isHidden": true,
+      "category": "Galletas",
+      "name": "Galletas nutri snacks coco",
+      "quantity": "53",
+      "unit": "Uds"
+    },
+    {
+      "location": "fuerza_publica",
+      "category": "Galletas",
+      "isHidden": true,
+      "expiryDate": "",
+      "id": "1778474097590",
+      "refillType": "global",
+      "name": "Palillos dulces integrales",
+      "quantity": "300",
+      "unit": "Uds"
+    },
+    {
+      "unit": "Uds",
+      "name": "Harina",
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "4",
+      "refillType": "global",
+      "id": "1778474135771"
+    },
+    {
+      "unit": "Uds",
+      "name": "Masa ",
+      "expiryDate": "",
+      "category": "Abarrotes",
+      "location": "fuerza_publica",
+      "quantity": "15",
+      "refillType": "global",
+      "id": "1778474150233"
+    },
+    {
+      "category": "Abarrotes",
+      "expiryDate": "",
+      "location": "fuerza_publica",
+      "quantity": "8",
+      "refillType": "global",
+      "id": "1778474172151",
+      "unit": "Cajas",
+      "name": "Manzanilla"
+    }
+  ],
+  "users": [
+    {
+      "delegationId": "default",
+      "lastLoginAt": "2026-05-11T04:52:20.142Z",
+      "id": "admin-default",
+      "lastDeviceUsed": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Mobile Safari/537.36",
+      "email": "jsphprendas@gmail.com",
+      "name": "Administrador Delegation",
+      "role": "admin",
+      "isApproved": true
+    },
+    {
+      "isApproved": true,
+      "role": "admin",
+      "picture": "https://lh3.googleusercontent.com/a/ACg8ocLlWLWPH_bUdUyfu_LqLy2BHVeP8hTxCcN5_YB6zew5ebFbVg=s96-c",
+      "lastName": "M Concha",
+      "googleUid": "lrPetseSsxTJTkCn3S5Jj9UXTEN2",
+      "email": "estebancp3119@gmail.com",
+      "lastDeviceUsed": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_4_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/148.0.7778.100 Mobile/15E148 Safari/604.1",
+      "firstName": "Esteban",
+      "lastLoginAt": "2026-05-11T12:56:23.144Z",
+      "delegationId": "default",
+      "name": "Esteban M Concha",
+      "createdAt": "2026-05-11T12:55:49.727Z",
+      "id": "u-1778504149727"
+    }
+  ],
+  "categories": [
+    {
+      "name": "Abarrotes",
+      "location": "fuerza_publica",
+      "id": "1778381202926"
+    },
+    {
+      "id": "1778381478424",
+      "name": "Frijoles",
+      "location": "1778381180620"
+    },
+    {
+      "location": "fronteras",
+      "name": "Abarrtoes",
+      "id": "1778381490044"
+    },
+    {
+      "location": "fuerza_publica",
+      "name": "Lacteos",
+      "id": "1778473916231"
+    },
+    {
+      "id": "1778473942639",
+      "location": "fuerza_publica",
+      "name": "Galletas"
+    }
+  ],
+  "supportProducts": [],
+  "settings": {
+    "customLocations": [
+      {
+        "name": "Fuerza Pública",
+        "visible": true,
+        "id": "fuerza_publica"
+      },
+      {
+        "visible": false,
+        "name": "Fronteras",
+        "id": "fronteras"
+      }
+    ],
+    "locationVisibility": {
+      "fronteras": true,
+      "fuerza_publica": true
+    }
+  },
+  "supportCategories": []
+}

@@ -270,7 +270,7 @@ export default function TrashSection({ user, data }: TrashSectionProps) {
               <p className="text-xs text-indigo-100 font-medium leading-relaxed">
                 Los elementos en la papelera pueden ser restaurados a su ubicación original conservando su información histórica. 
                 <br /><br />
-                <span className="font-black text-white">PROTECCIÓN DE INVENTARIO:</span> Al restaurar o eliminar un movimiento, el stock actual <span className="underline">no se ve afectado</span> para preservar el conteo establecido.
+                <span className="font-black text-white">INTEGRIDAD DE INVENTARIO:</span> Al restaurar registros, el stock actual <span className="underline text-indigo-200">NUNCA es modificado</span>. Esto protege el conteo real contra aumentos accidentales por borrado de historial.
               </p>
             </CardContent>
           </Card>

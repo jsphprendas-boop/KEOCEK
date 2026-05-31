@@ -129,6 +129,12 @@ export interface TrashItem {
   deletedAt: string;
 }
 
+export interface AssetLocationBlock {
+  id: string;
+  name: string;
+  subLocations: string[];
+}
+
 export interface DBData {
   categories: Category[];
   products: Product[];
@@ -142,6 +148,8 @@ export interface DBData {
   supportProducts?: SupportProduct[];
   gasReports?: GasReport[];
   trash: TrashItem[];
+  assets?: Asset[];
+  assetLocationBlocks?: AssetLocationBlock[];
   _isLoaded?: boolean;
   _isGlobalLoaded?: boolean;
   settings?: {
@@ -152,4 +160,21 @@ export interface DBData {
     };
     customLocations?: Array<{ id: string, name: string, visible: boolean }>;
   };
+}
+
+export interface Asset {
+  id: string;
+  itemNumber: string; // Numero de item
+  barcode: string; // Cod de barras
+  assetNumber: string; // Patrimonio
+  description: string; // Descripción
+  brand: string; // Marca
+  model: string; // Modelo
+  serialNumber: string; // Serie
+  state: 'bueno' | 'regular' | 'malo'; // Estado
+  observations: string; // Observaciones
+  lastRevisionDate?: string; // Fecha de última revisión
+  locationBlock?: string; // Bloque de ubicación (e.g. Módulo A)
+  location?: string; // Ubicación específica o número de cama/cuarto (e.g. Cama 12)
+  assignedTo?: string; // ID del usuario al que se le asigna (opcional)
 }

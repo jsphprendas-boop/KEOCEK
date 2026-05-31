@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { User, DBData, Product, Movement, Request, Delegation } from "../types";
+import { User, DBData, Product, Movement, Request } from "../types";
 import { 
   Menu,
   X,
@@ -22,9 +22,11 @@ import {
   RotateCcw,
   Sun,
   Moon,
-  Building2
+  Building2,
+  Box
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { NotificationCenter } from "./NotificationCenter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -40,39 +42,39 @@ import { isSuperAdminEmail } from "../lib/helpers";
 // Sub-components
 import InventorySection from "./admin/InventorySection";
 import InventoryHistorySection from "./admin/InventoryHistorySection";
-import AccountingSection from "./admin/AccountingSection";
 import RequestSection from "./admin/RequestSection";
-import CalendarSection from "./admin/CalendarSection";
 import UsersSection from "./admin/UsersSection";
 import RequestsHistorySection from "./admin/RequestsHistorySection";
-import SupportInventorySection from "./admin/SupportInventorySection";
-import GasReportsSection from "./admin/GasReportsSection";
 import TrashSection from "./admin/TrashSection";
 import GlobalManagementSection from "./admin/GlobalManagementSection";
+import AccountingSection from "./admin/AccountingSection";
+import CalendarSection from "./admin/CalendarSection";
+import GasReportsSection from "./admin/GasReportsSection";
+import SupportInventorySection from "./admin/SupportInventorySection";
+import { AssetsSection } from "./admin/AssetsSection";
 
 interface AdminDashboardProps {
   user: User;
   data: DBData;
   onLogout: () => void;
-  delegationId: string;
-  allDelegations: Delegation[];
-  onDelegationChange: (id: string) => void;
   onGlobalRefresh: () => void;
   notificationHistory: {message: string, type?: string, timestamp: number}[];
+  onClearNotifications: () => void;
+  onRemoveNotification: (ts: number) => void;
 }
 
 export default React.memo(function AdminDashboard({ 
   user, 
   data, 
   onLogout,
-  delegationId,
-  allDelegations,
-  onDelegationChange,
   onGlobalRefresh,
-  notificationHistory
+  notificationHistory,
+  onClearNotifications,
+  onRemoveNotification
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState("inventory");
   const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearchTerm = React.useDeferredValue(searchTerm);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isReadOnly, setIsReadOnly] = useState(false);
@@ -177,6 +179,8 @@ export default React.memo(function AdminDashboard({
       sheets.push({ name: "Pedidos Pasados", data: pedidoItems });
     }
 
+    // 5. Contaduría (Value estimates, maybe just inventory mapping)
+    // We can skip giving it fake values if not required, but let's just make it a copy of inventory with basic "price assumptions" or just the basic data.
     // 5. CALENDARIO OPERATIVO (Timeline)
     const timeline = [];
     
@@ -282,6 +286,26 @@ export default React.memo(function AdminDashboard({
       });
     }
 
+    // 10. ACTIVOS INSTITUCIONALES
+    if (data.assets && data.assets.length > 0) {
+      sheets.push({
+        name: "Activos Institucionales",
+        data: data.assets.map(a => ({
+          "N° Item": a.itemNumber || "",
+          "Patrimonio": a.assetNumber || "",
+          "Cod. Barras": a.barcode || "",
+          "Descripción": a.description || "",
+          "Marca": a.brand || "",
+          "Modelo": a.model || "",
+          "Serie": a.serialNumber || "",
+          "Estado": a.state || "",
+          "Asignado A": a.assignedTo ? data.users?.find((u: any) => u.id === a.assignedTo)?.name || a.assignedTo : "",
+          "Última Revisión": a.lastRevisionDate || "",
+          "Observaciones": a.observations || ""
+        }))
+      });
+    }
+
     if (sheets.length === 0) {
       sheets.push({ name: "Aviso", data: [{"Estado": "Sin datos para exportar"}] });
     }
@@ -291,11 +315,11 @@ export default React.memo(function AdminDashboard({
 
 
   const isMasterAdmin = useMemo(() => {
-    return user.email === "jsphprendas@gmail.com" || user.email === "alecamposa32@gmail.com";
+    return user.email === "jsphprendas@gmail.com";
   }, [user.email]);
 
   return (
-    <div className="flex h-[100dvh] bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 overflow-hidden transition-colors duration-300">
+    <div className="flex-1 w-full flex bg-slate-50 dark:bg-slate-950 font-sans text-slate-800 dark:text-slate-200 overflow-hidden transition-colors duration-300">
       
       {/* Mobile Menu Overlay */}
       <AnimatePresence>
@@ -335,6 +359,14 @@ export default React.memo(function AdminDashboard({
             isGolden={isMasterAdmin}
           />
           <SidebarItem 
+            icon={<Clock className="w-5 h-5" />} 
+            label="Kárdex / Historial" 
+            active={activeTab === "inventory-history"} 
+            onClick={() => handleTabChange("inventory-history")} 
+            isGolden={isMasterAdmin}
+            customActiveClass={activeTab === "inventory-history" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : ""}
+          />
+          <SidebarItem 
             icon={<Calculator className="w-5 h-5" />} 
             label="Contaduría" 
             active={activeTab === "accounting"} 
@@ -342,12 +374,11 @@ export default React.memo(function AdminDashboard({
             isGolden={isMasterAdmin}
           />
           <SidebarItem 
-            icon={<Clock className="w-5 h-5" />} 
-            label="Kárdex / Historial" 
-            active={activeTab === "inventory-history"} 
-            onClick={() => handleTabChange("inventory-history")} 
+            icon={<Box className="w-5 h-5" />} 
+            label="Inventario de Activos" 
+            active={activeTab === "assets"} 
+            onClick={() => handleTabChange("assets")} 
             isGolden={isMasterAdmin}
-            customActiveClass={activeTab === "inventory-history" ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20" : ""}
           />
           <div className="pt-6 text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 px-2">Gestión</div>
           <SidebarItem 
@@ -437,7 +468,7 @@ export default React.memo(function AdminDashboard({
         )}
 
         {/* Global Toolbar */}
-        <header className={`h-20 ${isMasterAdmin ? 'bg-black/95 border-b border-amber-500/20' : 'bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800'} flex items-center justify-between px-6 md:px-10 z-30 backdrop-blur-md sticky top-0`}>
+        <header className={`h-[calc(5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] ${isMasterAdmin ? 'bg-black/95 border-b border-amber-500/20' : 'bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800'} flex items-center justify-between px-6 md:px-10 z-30 backdrop-blur-md sticky top-0`}>
           <div className="flex items-center gap-4 flex-1">
             <Button variant="ghost" size="icon" className={`lg:hidden ${isMasterAdmin ? 'text-amber-500 hover:bg-amber-500/10' : 'text-slate-500'} h-10 w-10`} onClick={() => setIsMobileMenuOpen(true)}>
               <Menu className="w-7 h-7" />
@@ -464,6 +495,13 @@ export default React.memo(function AdminDashboard({
             <div className={`hidden sm:block h-10 w-px ${isMasterAdmin ? 'bg-amber-500/20' : 'bg-slate-200 dark:bg-slate-800'}`}></div>
             
             <ThemeToggle />
+            
+            <NotificationCenter 
+              notifications={notificationHistory} 
+              onClear={onClearNotifications} 
+              onRemove={onRemoveNotification} 
+              isMasterAdmin={isMasterAdmin}
+            />
             
             <Button 
               variant="ghost" 
@@ -514,24 +552,16 @@ export default React.memo(function AdminDashboard({
                   </motion.div>
                 )}
 
-                {activeTab === "inventory" && <InventorySection user={effectiveUser} data={data} searchTerm={searchTerm} onExportAll={handleExportAllData} onGlobalRefresh={onGlobalRefresh} />}
+                {activeTab === "inventory" && <InventorySection user={effectiveUser} data={data} searchTerm={deferredSearchTerm} onExportAll={handleExportAllData} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "inventory-history" && <InventoryHistorySection user={effectiveUser} data={data} />}
-                {activeTab === "accounting" && 
-                  <AccountingSection 
-                    user={effectiveUser} 
-                    data={data} 
-                    searchTerm={searchTerm} 
-                    onExportAll={handleExportAllData}
-                    onGlobalRefresh={onGlobalRefresh}
-                  />
-                }
+                {activeTab === "accounting" && <AccountingSection data={data} />}
+                {activeTab === "assets" && <AssetsSection data={data} onRefresh={onGlobalRefresh} isMasterAdmin={isMasterAdmin} />}
                 {activeTab === "users" && (
                   <UsersSection 
                     user={effectiveUser} 
                     data={data} 
                     isSuperAdmin={isSuperAdmin} 
                     onGlobalRefresh={onGlobalRefresh}
-                    allDelegations={allDelegations}
                   />
                 )}
                 {activeTab === "notifications" && <RequestSection user={effectiveUser} data={data} />}
@@ -542,9 +572,9 @@ export default React.memo(function AdminDashboard({
                     onExportAll={handleExportAllData}
                   />
                 }
-                {activeTab === "calendar" && <CalendarSection user={effectiveUser} data={data} />}
-                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} />}
-                {activeTab === "gas-reports" && <GasReportsSection reports={data.gasReports || []} user={effectiveUser} />}
+                {activeTab === "calendar" && <CalendarSection data={data} />}
+                {activeTab === "support-inventory" && <SupportInventorySection user={effectiveUser} data={data} onGlobalRefresh={onGlobalRefresh} />}
+                {activeTab === "gas-reports" && <GasReportsSection reports={data.gasReports || []} user={effectiveUser} onGlobalRefresh={onGlobalRefresh} />}
                 {activeTab === "recovery" && <TrashSection user={effectiveUser} data={data} />}
               </motion.div>
             </AnimatePresence>

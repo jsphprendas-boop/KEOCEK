@@ -1,14 +1,12 @@
 {
-  "name": "react-example",
+  "name": "intendencia-autonoma",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "start": "NODE_ENV=production node dist/server.cjs",
+    "start": "node dist/server.cjs",
     "dev": "tsx server.ts",
-    "build": "npm run build:frontend && npm run build:backend",
-    "build:frontend": "vite build",
-    "build:backend": "esbuild server.ts --bundle --platform=node --outfile=dist/server.cjs --format=cjs --external:express --external:firebase-admin --external:socket.io --external:helmet --external:cors --external:express-rate-limit --external:vite",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && cp -r dist build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -60,7 +58,8 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vite-plugin-pwa": "^1.2.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "esbuild": "^0.28.0"
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",
@@ -68,7 +67,6 @@
     "@types/file-saver": "^2.0.7",
     "@types/node": "^22.14.0",
     "@types/react-signature-canvas": "^1.0.7",
-    "esbuild": "^0.28.0",
     "shadcn": "^4.4.0"
   }
 }

@@ -2,8 +2,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 export const SUPER_ADMIN_EMAILS = [
-  "jsphprendas@gmail.com",
-  "alecamposa32@gmail.com"
+  "jsphprendas@gmail.com"
 ];
 
 export const isSuperAdminEmail = (email: string | undefined | null) => {

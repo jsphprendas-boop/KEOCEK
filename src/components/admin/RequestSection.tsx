@@ -64,7 +64,19 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
     setEditedItems(prev => prev.map((item, i) => i === index ? { ...item, quantity: qty } : item).filter(item => item.quantity > 0));
   };
 
-  const pendingRequests = useMemo(() => {
+  const [pendingCurrentPage, setPendingCurrentPage] = React.useState(1);
+  const pendingItemsPerPage = 10;
+  
+  const [pastCurrentPage, setPastCurrentPage] = React.useState(1);
+  const pastItemsPerPage = 20;
+
+  // reset pagination when filters change
+  React.useEffect(() => {
+    setPendingCurrentPage(1);
+    setPastCurrentPage(1);
+  }, [filterSearch, filterStatus, filterUser, filterUrgent]);
+
+  const sortedPendingRequests = useMemo(() => {
     let filtered = data.requests.filter(r => r.status === "pending");
     
     if (filterSearch) {
@@ -92,13 +104,18 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
     });
   }, [data.requests, filterSearch, filterUser, filterUrgent]);
 
+  const pendingRequests = useMemo(() => {
+    const startIndex = (pendingCurrentPage - 1) * pendingItemsPerPage;
+    return sortedPendingRequests.slice(startIndex, startIndex + pendingItemsPerPage);
+  }, [sortedPendingRequests, pendingCurrentPage]);
+
   const pendingUsers = useMemo(() => 
     data.users.filter(u => !u.isApproved)
   , [data.users]);
 
   const isMasterAdmin = user.email === "jsphprendas@gmail.com";
 
-  const groupedPastRequests = useMemo(() => {
+  const { groupedPastRequests, totalPastRequests } = useMemo(() => {
     const currentPast = data.requests.filter(r => r.status !== "pending");
     const archivedPast = data.pastHistories?.flatMap(h => h.requests || []) || [];
     
@@ -133,16 +150,21 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
     allPast = allPast.sort((a, b) => 
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
+    
+    const total = allPast.length;
+    
+    const startIndex = (pastCurrentPage - 1) * pastItemsPerPage;
+    const paginatedPast = allPast.slice(startIndex, startIndex + pastItemsPerPage);
 
     const groups: Record<string, Request[]> = {};
-    allPast.forEach(req => {
+    paginatedPast.forEach(req => {
       const dateKey = format(new Date(req.timestamp), "yyyy-MM-dd");
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(req);
     });
     
-    return groups;
-  }, [data.requests, data.pastHistories, filterSearch, filterStatus, filterUser, filterUrgent]);
+    return { groupedPastRequests: groups, totalPastRequests: total };
+  }, [data.requests, data.pastHistories, filterSearch, filterStatus, filterUser, filterUrgent, pastCurrentPage]);
 
   const cooks = useMemo(() => {
     const list = data.users.filter(u => u.role !== "viewer");
@@ -189,6 +211,16 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
       toast.success(action === 'confirm' ? "Pedido confirmado y stock retirado" : "Pedido rechazado");
     } catch (e: any) {
       toast.error(e.message || "Error al procesar acción");
+    }
+  };
+
+  const handleDeletePastRequest = async (id: string) => {
+    if (!window.confirm("¿Estás seguro de eliminar este registro histórico?")) return;
+    try {
+      await apiFetch(`/api/history/requests/${id}`, { method: "DELETE" });
+      toast.success("Registro eliminado exitosamente");
+    } catch (e: any) {
+      toast.error(e.message || "Error al eliminar");
     }
   };
 
@@ -520,6 +552,16 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
                    <p className="text-xs md:text-sm font-bold uppercase tracking-widest leading-none">Todo en Orden</p>
                 </div>
               )}
+              
+              {sortedPendingRequests.length > pendingItemsPerPage && (
+                <div className="flex justify-center mt-4 pb-2">
+                  <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                    <Button variant="ghost" size="sm" onClick={() => setPendingCurrentPage(prev => Math.max(1, prev - 1))} disabled={pendingCurrentPage === 1}>Anterior</Button>
+                    <div className="text-xs font-bold px-2">{pendingCurrentPage} / {Math.ceil(sortedPendingRequests.length / pendingItemsPerPage)}</div>
+                    <Button variant="ghost" size="sm" onClick={() => setPendingCurrentPage(prev => Math.min(Math.ceil(sortedPendingRequests.length / pendingItemsPerPage), prev + 1))} disabled={pendingCurrentPage >= Math.ceil(sortedPendingRequests.length / pendingItemsPerPage)}>Siguiente</Button>
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollArea>
         </div>
@@ -570,9 +612,16 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
                                 </p>
                               </div>
                             </div>
-                            <Badge variant="secondary" className="bg-white border-none rounded-lg text-[8px] md:text-[10px] font-bold text-slate-500">
-                               {req.items.length} Art.
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="bg-white border-none rounded-lg text-[8px] md:text-[10px] font-bold text-slate-500">
+                                 {req.items.length} Art.
+                              </Badge>
+                              {user.role === 'admin' && (
+                                <Button variant="ghost" size="icon" onClick={() => handleDeletePastRequest(req.id)} className="h-6 w-6 md:h-7 md:w-7 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md">
+                                  <Trash2 className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -583,6 +632,16 @@ export default function RequestSection({ user, data }: RequestSectionProps) {
                   <div className="py-10 md:py-20 text-center opacity-20">
                     <AlertCircle className="w-8 h-8 md:w-12 md:h-12 mx-auto mb-2" />
                     <p className="text-[10px] md:text-xs font-bold uppercase">Sin historial</p>
+                  </div>
+                )}
+                
+                {totalPastRequests > pastItemsPerPage && (
+                  <div className="flex justify-center mt-4 mb-2">
+                    <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                      <Button variant="ghost" size="sm" onClick={() => setPastCurrentPage(prev => Math.max(1, prev - 1))} disabled={pastCurrentPage === 1}>Anterior</Button>
+                      <div className="text-xs font-bold px-2">{pastCurrentPage} / {Math.ceil(totalPastRequests / pastItemsPerPage)}</div>
+                      <Button variant="ghost" size="sm" onClick={() => setPastCurrentPage(prev => Math.min(Math.ceil(totalPastRequests / pastItemsPerPage), prev + 1))} disabled={pastCurrentPage >= Math.ceil(totalPastRequests / pastItemsPerPage)}>Siguiente</Button>
+                    </div>
                   </div>
                 )}
              </div>

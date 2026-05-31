@@ -7,12 +7,12 @@ import {
   ArrowDownCircle, 
   Filter,
   Download,
-  Trash2,
   Clock,
   ChevronLeft,
   ChevronRight,
   FileText,
-  BoxSelect
+  BoxSelect,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,17 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { exportToExcel, exportToPDF } from "../../lib/exportUtils";
 import { toast } from "sonner";
+import { apiFetch } from "../../lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface InventoryHistorySectionProps {
   user: User;
@@ -32,38 +43,59 @@ interface InventoryHistorySectionProps {
 
 export default function InventoryHistorySection({ user, data }: InventoryHistorySectionProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearchTerm = React.useDeferredValue(searchTerm);
   const [typeFilter, setTypeFilter] = useState<"all" | "in" | "out">("all");
   const [locationFilter, setLocationFilter] = useState<"all" | "fuerza_publica" | "fronteras">("all");
   const [dateFilter, setDateFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const itemsPerPage = 15;
+
+  const toggleExpand = (id: string, e: React.MouseEvent) => {
+    // Evitar abrir detalle si hace click en el boton de borrar
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    setExpandedRowId(expandedRowId === id ? null : id);
+  };
+
+  const archivedMovements = useMemo(() => {
+    return (data.pastHistories || []).flatMap(h => h.movements || []);
+  }, [data.pastHistories]);
 
   // Combine current movements with archived movements from pastHistories
   const allMovements = useMemo(() => {
     const current = data.movements || [];
-    const archived = (data.pastHistories || []).flatMap(h => h.movements || []);
     
     // Merge and sort by timestamp descending
-    const combined = [...current, ...archived];
-    return combined.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [data.movements, data.pastHistories]);
+    const combined = [...current, ...archivedMovements];
+    return combined.sort((a, b) => {
+      const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [data.movements, archivedMovements]);
 
   const filteredMovements = useMemo(() => {
+    if (!allMovements?.length) return [];
+    
     return allMovements.filter(m => {
-      const matchesSearch = 
-        m.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (m.note || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (m.category || "").toLowerCase().includes(searchTerm.toLowerCase());
+      let matchesSearch = true;
+      if (deferredSearchTerm) {
+        const lowerSearch = deferredSearchTerm.toLowerCase();
+        matchesSearch = 
+          (m.productName || "").toLowerCase().includes(lowerSearch) ||
+          (m.note || "").toLowerCase().includes(lowerSearch) ||
+          (m.category || "").toLowerCase().includes(lowerSearch);
+      }
       
       const matchesType = typeFilter === "all" || m.type === typeFilter;
-      
       const matchesLocation = locationFilter === "all" || m.location === locationFilter;
-      
-      const matchesDate = !dateFilter || m.timestamp.startsWith(dateFilter);
+      const matchesDate = !dateFilter || (m.timestamp && typeof m.timestamp === 'string' && m.timestamp.startsWith(dateFilter));
 
       return matchesSearch && matchesType && matchesLocation && matchesDate;
     });
-  }, [allMovements, searchTerm, typeFilter, locationFilter, dateFilter]);
+  }, [allMovements, deferredSearchTerm, typeFilter, locationFilter, dateFilter]);
 
   const paginatedMovements = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -72,29 +104,9 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
 
   const totalPages = Math.ceil(filteredMovements.length / itemsPerPage);
 
-  const deleteByDate = async () => {
-    if (!dateFilter) {
-      toast.error("Seleccione una fecha primero");
-      return;
-    }
-    const confirmMsg = `¿Está seguro de eliminar TODOS los movimientos del día ${dateFilter}? Esta acción es irreversible (se borrará tanto el historial actual como el archivado de este día).`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      const res = await fetch(`/api/movements/date/${dateFilter}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success(`Movimientos del día ${dateFilter} eliminados`);
-      } else {
-        toast.error("Error al eliminar movimientos");
-      }
-    } catch (e) {
-      toast.error("Error de conexión");
-    }
-  };
-
   const handleExport = () => {
     const formattedData = filteredMovements.map(m => ({
-      "Fecha": format(new Date(m.timestamp), "dd/MM/yyyy HH:mm"),
+      "Fecha": format(m.timestamp ? new Date(m.timestamp) : new Date(), "dd/MM/yyyy HH:mm"),
       "Producto": m.productName,
       "Categoría": m.category || "N/A",
       "Tipo": m.type === "in" ? "ENTRADA" : "SALIDA",
@@ -108,7 +120,7 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
 
   const handleExportPDF = () => {
     const formattedData = filteredMovements.map(m => ({
-      "Fecha": format(new Date(m.timestamp), "dd/MM/yyyy HH:mm"),
+      "Fecha": format(m.timestamp ? new Date(m.timestamp) : new Date(), "dd/MM/yyyy HH:mm"),
       "Artículo": m.productName,
       "Tipo": m.type === "in" ? "ENTRADA" : "SALIDA",
       "Cant.": m.quantity,
@@ -120,31 +132,16 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
     toast.success("PDF generado exitosamente");
   };
 
-  const handleDeleteMovement = async (id: string, movement: Movement) => {
-    if (!window.confirm(`¿Seguro que deseas eliminar el registro de ${movement.productName}? Esta acción moverá el registro a la papelera.`)) return;
-    try {
-      const res = await fetch(`/api/movements/${id}`, { 
-        method: "DELETE"
-      });
-      if (res.ok) {
-        toast.success("Movimiento eliminado y enviado a papelera");
-      } else {
-        toast.error("Error al eliminar el movimiento");
-      }
-    } catch (e) {
-      toast.error("Error de conexión");
-    }
-  };
+  const handleDeleteMovement = async () => {
+    if (!itemToDelete) return;
 
-  const clearMovements = async () => {
-    if (!window.confirm("¿Estás seguro de que deseas vaciar el historial actual? (Esto no borrará el historial archivado)")) return;
     try {
-      const res = await fetch("/api/movements", { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Historial actual limpiado");
-      }
-    } catch (e) {
-      toast.error("Error al limpiar historial");
+      await apiFetch(`/api/movements/${itemToDelete}`, { method: "DELETE" });
+      toast.success("Registro histórico eliminado (sin afectar stock actual)");
+    } catch (e: any) {
+      toast.error(e.message || "Error al eliminar el registro");
+    } finally {
+      setItemToDelete(null);
     }
   };
 
@@ -180,15 +177,6 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
                 <FileText className="w-4 h-4 mr-2" />
                 PDF
               </Button>
-              {user.role === "admin" && (
-                <Button 
-                  variant="destructive" 
-                  onClick={clearMovements}
-                  className="bg-red-500/10 border-red-500/20 text-red-500 hover:bg-red-500/20 rounded-xl"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              )}
             </div>
           </div>
         </CardHeader>
@@ -208,19 +196,10 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" />
               <Input 
                 type="date"
-                className="pl-10 h-11 bg-white border-slate-200 rounded-xl shadow-sm focus:ring-indigo-500 pr-10"
+                className="pl-10 h-11 bg-white border-slate-200 rounded-xl shadow-sm focus:ring-indigo-500"
                 value={dateFilter}
                 onChange={(e) => { setDateFilter(e.target.value); setCurrentPage(1); }}
               />
-              {dateFilter && user.role === "admin" && (
-                <button 
-                  onClick={deleteByDate}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-red-500 hover:text-red-700 transition-colors"
-                  title="Eliminar todo lo de este día"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
             </div>
 
             <Select value={typeFilter} onValueChange={(v: any) => { setTypeFilter(v); setCurrentPage(1); }}>
@@ -257,7 +236,7 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
       {/* Table */}
       <Card className="border-slate-200 shadow-xl overflow-hidden rounded-2xl bg-white">
         <div className="overflow-x-auto">
-          <Table>
+          <Table className="min-w-[800px]">
             <TableHeader className="bg-slate-50 border-b border-slate-200">
               <TableRow className="hover:bg-transparent">
                 <TableHead className="font-bold text-slate-600 uppercase text-[10px] tracking-widest pl-6 py-4">Fecha y Hora</TableHead>
@@ -271,79 +250,103 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
             <TableBody>
               {paginatedMovements.length > 0 ? (
                 paginatedMovements.map((movement) => (
-                  <TableRow key={movement.id} className="hover:bg-slate-50/80 transition-colors group">
-                    <TableCell className="pl-6 py-4">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-900 text-sm">
-                          {format(new Date(movement.timestamp), "dd MMM yyyy", { locale: es })}
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-500 uppercase">
-                          {format(new Date(movement.timestamp), "HH:mm:ss")}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors">
-                          {movement.productName}
-                        </span>
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                          {movement.category || "General"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4">
-                      {movement.type === "in" ? (
-                        <div className="flex flex-col gap-1">
-                          <Badge className="bg-emerald-50 text-emerald-600 border-none rounded-lg px-2 py-1 flex items-center gap-1 w-fit shadow-sm shadow-emerald-500/10">
-                            <ArrowUpCircle className="w-3 h-3" />
-                            <span className="text-[10px] font-black uppercase">Entrada</span>
-                          </Badge>
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter text-center">
-                            {movement.location === 'fronteras' ? 'Fronteras' : 'Fza Pública'}
+                  <React.Fragment key={movement.id}>
+                    <TableRow 
+                      className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
+                      onClick={(e) => toggleExpand(movement.id, e)}
+                    >
+                      <TableCell className="pl-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-900 text-sm">
+                            {format(movement.timestamp ? new Date(movement.timestamp) : new Date(), "dd MMM yyyy", { locale: es })}
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-500 uppercase">
+                            {format(movement.timestamp ? new Date(movement.timestamp) : new Date(), "HH:mm:ss")}
                           </span>
                         </div>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          <Badge className="bg-rose-50 text-rose-600 border-none rounded-lg px-2 py-1 flex items-center gap-1 w-fit shadow-sm shadow-rose-500/10">
-                            <ArrowDownCircle className="w-3 h-3" />
-                            <span className="text-[10px] font-black uppercase">Salida</span>
-                          </Badge>
-                          <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter text-center">
-                            {movement.location === 'fronteras' ? 'Fronteras' : 'Fza Pública'}
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors">
+                            {movement.productName}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                            {movement.category || "General"}
                           </span>
                         </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="py-4 text-center">
-                      <div className="flex flex-col items-center">
-                        <span className={`text-base font-black font-mono ${movement.type === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {movement.type === 'in' ? '+' : '-'}{movement.quantity}
-                        </span>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase">{movement.unit}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4">
-                      <div className="flex items-start gap-2 max-w-xs md:max-w-md">
-                        <FileText className="w-3.5 h-3.5 text-slate-300 mt-1 shrink-0" />
-                        <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                          {movement.note || "-- Sin observaciones --"}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-4 pr-6 text-right">
-                      {user.role === "admin" && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleDeleteMovement(movement.id, movement)}
-                          className="h-8 w-8 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                      <TableCell className="py-4">
+                        {movement.type === "in" ? (
+                          <div className="flex flex-col gap-1">
+                            <Badge className="bg-emerald-50 text-emerald-600 border-none rounded-lg px-2 py-1 flex items-center gap-1 w-fit shadow-sm shadow-emerald-500/10">
+                              <ArrowUpCircle className="w-3 h-3" />
+                              <span className="text-[10px] font-black uppercase">Entrada</span>
+                            </Badge>
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter text-center">
+                              {movement.location === 'fronteras' ? 'Fronteras' : 'Fza Pública'}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            <Badge className="bg-rose-50 text-rose-600 border-none rounded-lg px-2 py-1 flex items-center gap-1 w-fit shadow-sm shadow-rose-500/10">
+                              <ArrowDownCircle className="w-3 h-3" />
+                              <span className="text-[10px] font-black uppercase">Salida</span>
+                            </Badge>
+                            <span className="text-[8px] font-black text-slate-400 uppercase tracking-tighter text-center">
+                              {movement.location === 'fronteras' ? 'Fronteras' : 'Fza Pública'}
+                            </span>
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell className="py-4 text-center">
+                        <div className="flex flex-col items-center">
+                          <span className={`text-base font-black font-mono ${movement.type === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {movement.type === 'in' ? '+' : '-'}{movement.quantity}
+                          </span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">{movement.unit}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-4">
+                        <div className="flex items-start gap-2 max-w-xs md:max-w-md">
+                          <FileText className="w-3.5 h-3.5 text-slate-300 mt-1 shrink-0" />
+                          <p className="text-xs text-slate-600 leading-relaxed font-medium truncate">
+                            {movement.note || "-- Sin observaciones --"}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-4 pr-6 text-right">
+                        {(user.role === "admin" || user.role === "master_admin") && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setItemToDelete(movement.id);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {expandedRowId === movement.id && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="bg-slate-50/50 p-4 border-t border-slate-100">
+                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
+                             <p className="font-bold text-xs text-slate-500 uppercase tracking-wider">Detalles de Movimiento</p>
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                   <p className="text-[10px] text-slate-400 font-bold uppercase">Nota</p>
+                                   <p className="text-xs text-slate-700 font-medium">{movement.note || "Sin observaciones."}</p>
+                                </div>
+                                {/* No user property available in Movement type */}
+                             </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </React.Fragment>
                 ))
               ) : (
                 <TableRow>
@@ -426,6 +429,27 @@ export default function InventoryHistorySection({ user, data }: InventoryHistory
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={!!itemToDelete} onOpenChange={(open) => !open && setItemToDelete(null)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar del historial?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción eliminará el registro únicamente del historial. <strong>El inventario actual (stock) no se modificará</strong>.
+              El registro quedará de forma temporal en la papelera del sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteMovement}
+              className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl"
+            >
+              Borrar Registro
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

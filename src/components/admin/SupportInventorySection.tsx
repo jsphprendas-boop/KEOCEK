@@ -1,760 +1,646 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { DBData, SupportRecord, SupportRecordItem, SupportProduct, SupportCategory, User } from "../../types";
-import { Calendar } from "@/components/ui/calendar";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import React, { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { format, isSameDay } from "date-fns";
-import { es } from "date-fns/locale";
-import { 
-  Save, 
-  History, 
-  Calendar as CalendarIcon, 
-  ClipboardList, 
-  Search,
-  Trash2, 
-  Plus, 
-  Minus, 
-  Layers, 
-  PackagePlus, 
-  ArrowRight,
-  Settings2,
-  TableProperties,
-  Download,
-  FileText
-} from "lucide-react";
+import { Trash2, Calendar as CalendarIcon, Download, UserCircle, ClipboardList, Plus, PlusCircle, Sun, Moon, FolderPlus, PackagePlus, Search, Tags, History, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { exportToExcel, exportToPDF } from "../../lib/exportUtils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
+import { exportToExcel } from "../../lib/exportUtils";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogTrigger,
-  DialogFooter,
-  DialogDescription
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
 
-interface SupportInventorySectionProps {
-  user: User;
-  data: DBData;
-}
+export default function SupportInventorySection({ user, data, onGlobalRefresh }: any) {
+  const [isLoading, setIsLoading] = useState(false);
 
-export default function SupportInventorySection({ user, data }: SupportInventorySectionProps) {
-  const [activeTab, setActiveTab] = useState("registro");
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [searchTerm, setSearchTerm] = useState("");
-  const [historySearchTerm, setHistorySearchTerm] = useState("");
-  const [selectedHistoryCategory, setSelectedHistoryCategory] = useState<string | null>(null);
+  // States for Daily Consumption (Consumo)
+  const [consumeDate, setConsumeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [consumeShift, setConsumeShift] = useState("Día");
+  const [consumeCook, setConsumeCook] = useState("");
+  const [consumeItems, setConsumeItems] = useState<{name: string, quantity: number, unit: string}[]>([]);
+  const [consumeItemCat, setConsumeItemCat] = useState("");
+  const [consumeItemProd, setConsumeItemProd] = useState("");
+  const [consumeItemQty, setConsumeItemQty] = useState("");
+  const [consumeItemUnit, setConsumeItemUnit] = useState("");
 
-  const handleExportSupport = () => {
-    const formattedData = (data.supportRecords || []).flatMap(rec => rec.items.map(item => ({
-      "Fecha": new Date(rec.date + "T12:00:00").toLocaleDateString(),
-      "ID Registro": rec.id,
-      "Artículo": item.name,
-      "Bloque": item.category,
-      "Cantidad": item.quantity,
-      "Unidad": item.unit,
-      "Nota": rec.note || ""
-    })));
-    exportToExcel(formattedData, "Historial_Soporte");
-  };
-
-  const handleExportSupportPDF = () => {
-    const formattedData = (data.supportRecords || []).flatMap(rec => rec.items.map(item => ({
-      "Fecha": new Date(rec.date + "T12:00:00").toLocaleDateString(),
-      "Artículo": item.name,
-      "Bloque": item.category,
-      "Cant.": item.quantity,
-      "Unid.": item.unit,
-      "Nota": rec.note || "-"
-    })));
-    exportToPDF(formattedData, "Historial_Soporte", "REPORTE HISTÓRICO DE APOYO");
-  };
-
-  const [localCounts, setLocalCounts] = useState<Record<string, number>>({});
-  const [localNote, setLocalNote] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Catalog management states
+  // States for Catalog
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [isAddingProduct, setIsAddingProduct] = useState(false);
-  const [newProduct, setNewProduct] = useState({ name: "", category: "", unit: "uds" });
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [newProductData, setNewProductData] = useState({ name: "", unit: "Kilos" });
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [isEditingProduct, setIsEditingProduct] = useState(false);
+  const [editProductData, setEditProductData] = useState({ id: "", name: "", unit: "Kilos", category: "" });
 
-  const dateStr = format(selectedDate, "yyyy-MM-dd");
+  // State for History
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
 
-  const existingRecord = useMemo(() => {
-    return data.supportRecords?.find(r => r.date === dateStr);
-  }, [data.supportRecords, dateStr]);
+  const supportCategories = useMemo(() => data.supportCategories || [], [data.supportCategories]);
+  const supportProducts = useMemo(() => data.supportProducts || [], [data.supportProducts]);
 
-  // Sync localCounts when date or existingRecord changes
-  useEffect(() => {
-    if (existingRecord) {
-      const counts: Record<string, number> = {};
-      existingRecord.items.forEach(item => {
-        counts[item.productId] = item.quantity;
-      });
-      setLocalCounts(counts);
-      setLocalNote(existingRecord.note || "");
-    } else {
-      setLocalCounts({});
-      setLocalNote("");
-    }
-  }, [existingRecord, selectedDate]);
+  const supportRecords = data.supportRecords || [];
+  const consumeRecords = supportRecords.filter((r: any) => r.recordType === "consumo");
 
-  const updateCount = (productId: string, delta: number) => {
-    setLocalCounts(prev => {
-      const current = prev[productId] || 0;
-      const next = Math.max(0, current + delta);
-      return { ...prev, [productId]: next };
-    });
-  };
-
-  const handleManualCountChange = (productId: string, val: string) => {
-    if (val === "") {
-      setLocalCounts(prev => ({ ...prev, [productId]: 0 }));
-      return;
-    }
-    
-    if (!/^\d+$/.test(val)) {
-      toast.error("La cantidad debe ser un número entero positivo sin decimales");
-      return;
-    }
-    
-    const num = parseInt(val, 10);
-    setLocalCounts(prev => ({
-      ...prev,
-      [productId]: num
-    }));
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    const items: SupportRecordItem[] = (data.supportProducts || [])
-      .filter(p => (localCounts[p.id] || 0) > 0)
-      .map(p => ({
-        productId: p.id,
-        name: p.name,
-        quantity: localCounts[p.id] || 0,
-        unit: p.unit,
-        category: p.category
-      }));
-
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("¿Eliminar este registro de consumo de forma permanente?")) return;
     try {
+      await fetch(`/api/support-records/${id}`, { method: "DELETE", headers: { "x-user-email": user?.email || "" }});
+      toast.success("Registro eliminado");
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch (e) {
+      toast.error("Error al eliminar el registro");
+    }
+  };
+
+  const handleExport = () => {
+    if (consumeRecords.length === 0) {
+        toast.error("No hay registros para exportar");
+        return;
+    }
+    const exportData = consumeRecords.map((r: any) => ({
+      "Fecha del Consumo": r.consumeDate || r.date?.split('T')[0] || "",
+      "Turno": r.consumeShift || "",
+      "Personal/Cocinero": r.userName || "",
+      "Productos": r.items?.map((i: any) => `${i.quantity} ${i.unit} ${i.name}`).join(", ") || "",
+      "Registrado por": r.addedBy || "",
+      "Fecha de Registro": r.timestamp ? new Date(r.timestamp).toLocaleString() : ""
+    }));
+    exportToExcel(exportData, "Historial_Consumo_Apoyo");
+  };
+
+  // Consumo Logic
+  const handleAddConsumeItem = () => {
+    if (!consumeItemProd || !consumeItemQty || Number(consumeItemQty) <= 0) {
+      toast.error("Seleccione un producto e ingrese una cantidad válida");
+      return;
+    }
+    const prod = supportProducts.find((p: any) => p.id === consumeItemProd);
+    if (!prod) return;
+
+    setConsumeItems([...consumeItems, { 
+      name: prod.name, 
+      quantity: Number(consumeItemQty), 
+      unit: consumeItemUnit || prod.unit || "Unidades" 
+    }]);
+    setConsumeItemCat("");
+    setConsumeItemProd("");
+    setConsumeItemQty("");
+    setConsumeItemUnit("");
+  };
+
+  const handleRemoveConsumeItem = (index: number) => {
+    setConsumeItems(consumeItems.filter((_, i) => i !== index));
+  };
+
+  const handleAddConsume = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!consumeDate || !consumeShift || !consumeCook || consumeItems.length === 0) {
+        toast.error("Complete todos los campos base y agregue al menos un producto");
+        return;
+    }
+
+    setIsLoading(true);
+    try {
+      const uniqueId = new Date().toISOString(); 
       const res = await fetch("/api/support-records", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          date: dateStr,
-          items,
-          note: localNote,
-          userName: user.name
-        })
+        headers: { "Content-Type": "application/json", "x-user-email": user?.email || "" },
+        body: JSON.stringify({ 
+            date: uniqueId, 
+            userName: consumeCook, 
+            items: consumeItems,
+            consumeDate: consumeDate,
+            consumeShift: consumeShift,
+            recordType: "consumo",
+            addedBy: user?.name || user?.email || "Admin"
+        }),
       });
+
       if (res.ok) {
-        toast.success(`Inventario de apoyo guardado para ${format(selectedDate, "PPP", { locale: es })}`);
+        toast.success("Consumo registrado correctamente");
+        setConsumeItems([]);
+        setConsumeCook("");
+        if(onGlobalRefresh) onGlobalRefresh();
+      } else {
+        toast.error("Error al guardar el consumo");
       }
     } catch (e) {
-      toast.error("Error al guardar registro");
-    } finally {
-      setIsSaving(false);
+        toast.error("Error de conexión");
     }
+    setIsLoading(false);
   };
 
-  const handleDeleteRecord = async (date: string) => {
+  // Catalog Logic
+  const handleAddCategory = async () => {
+    if (!newCategoryName) return;
     try {
-      const res = await fetch(`/api/support-records?date=${date}`, {
-        method: "DELETE"
-      });
-      if (res.ok) {
-        toast.success("Registro eliminado");
-        if (date === dateStr) {
-          setLocalCounts({});
-          setLocalNote("");
-        }
-      }
-    } catch (e) {
-      toast.error("Error al eliminar registro");
-    }
-  };
-
-  // Catalog Actions
-  const addCategory = async () => {
-    if (!newCategoryName.trim()) return;
-    try {
-      const res = await fetch("/api/support-categories", {
+      await fetch("/api/support-categories", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newCategoryName })
+        headers: { "Content-Type": "application/json", "x-user-email": user?.email || "" },
+        body: JSON.stringify({ name: newCategoryName }),
       });
-      if (res.ok) {
-        setNewCategoryName("");
-        setIsAddingCategory(false);
-        toast.success("Bloque creado");
-      }
-    } catch (e) { toast.error("Error"); }
+      setNewCategoryName("");
+      setIsAddingCategory(false);
+      toast.success("Bloque creado");
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch (e) {}
   };
 
-  const deleteCategory = async (id: string) => {
+  const handleDeleteCategory = async (id: string) => {
+    if(!window.confirm("¿Eliminar este bloque y sus productos?")) return;
     try {
-      const res = await fetch(`/api/support-categories/${id}`, { method: "DELETE" });
-      if (res.ok) toast.success("Bloque eliminado");
-    } catch (e) { toast.error("Error"); }
+      await fetch(`/api/support-categories/${id}`, { method: "DELETE" });
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch(e) {}
   };
 
-  const addProduct = async () => {
-    if (!newProduct.name || !newProduct.category) return;
+  const handleAddProduct = async () => {
+    if (!newProductData.name || !selectedCategory) return;
     try {
-      const res = await fetch("/api/support-products", {
+      await fetch("/api/support-products", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newProduct)
+        headers: { "Content-Type": "application/json", "x-user-email": user?.email || "" },
+        body: JSON.stringify({ ...newProductData, category: selectedCategory }),
       });
-      if (res.ok) {
-        setNewProduct({ name: "", category: "", unit: "uds" });
-        setIsAddingProduct(false);
-        toast.success("Producto creado");
-      }
-    } catch (e) { toast.error("Error"); }
+      setNewProductData({ name: "", unit: "Kilos" });
+      setIsAddingProduct(false);
+      toast.success("Producto creado");
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch (e) {}
   };
 
-  const deleteProduct = async (id: string) => {
+  const handleEditProductSave = async () => {
+    if (!editProductData.name || !editProductData.category) return;
     try {
-      const res = await fetch(`/api/support-products/${id}`, { method: "DELETE" });
-      if (res.ok) toast.success("Producto eliminado");
-    } catch (e) { toast.error("Error"); }
+      await fetch(`/api/support-products/${editProductData.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "x-user-email": user?.email || "" },
+        body: JSON.stringify({ name: editProductData.name, unit: editProductData.unit, category: editProductData.category }),
+      });
+      setIsEditingProduct(false);
+      toast.success("Producto actualizado");
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch (e) {}
   };
 
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const handleDeleteProduct = async (id: string) => {
+    if(!window.confirm("¿Eliminar este producto?")) return;
+    try {
+      await fetch(`/api/support-products/${id}`, { method: "DELETE" });
+      if(onGlobalRefresh) onGlobalRefresh();
+    } catch(e) {}
+  };
 
-  const [catalogSearchTerm, setCatalogSearchTerm] = useState("");
+  // History / Calendar Logic
+  const groupedConsumes = useMemo(() => {
+     return consumeRecords.reduce((acc: any, r: any) => {
+        const date = r.consumeDate || r.date?.split('T')[0];
+        if (!acc[date]) acc[date] = [];
+        acc[date].push(r);
+        return acc;
+      }, {});
+  }, [consumeRecords]);
+  
+  const datesWithRecords = useMemo(() => {
+      return Object.keys(groupedConsumes).map(dateStr => new Date(dateStr + "T00:00:00"));
+  }, [groupedConsumes]);
 
-  const supportCategoriesWithProducts = useMemo(() => {
-    const cats = data.supportCategories || [];
-    const prods = (data.supportProducts || []).filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    let result = cats.map(cat => ({
-      ...cat,
-      products: prods.filter(p => p.category === cat.name)
-    })).filter(cat => cat.products.length > 0 || !searchTerm);
+  const getRecordsForSelectedDate = () => {
+      if (!selectedDate) return [];
+      const tzOffset = selectedDate.getTimezoneOffset() * 60000; 
+      const localDateIso = new Date(selectedDate.getTime() - tzOffset).toISOString().split('T')[0];
+      return groupedConsumes[localDateIso] || [];
+  };
 
-    if (selectedCategory) {
-      result = result.filter(cat => cat.name === selectedCategory);
-    }
-
-    return result;
-  }, [data.supportCategories, data.supportProducts, searchTerm, selectedCategory]);
+  const recordsForDate = getRecordsForSelectedDate();
 
   return (
-    <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <div className="flex flex-wrap gap-2 mb-6">
-          <Button 
-            variant={activeTab === "registro" ? "default" : "outline"}
-            onClick={() => setActiveTab("registro")}
-            className="rounded-full px-4 py-1 h-8 text-[10px] font-black uppercase tracking-widest shadow-sm"
-          >
-            Registro Diario
-          </Button>
-          <Button 
-            variant={activeTab === "historial" ? "default" : "outline"}
-            onClick={() => setActiveTab("historial")}
-            className="rounded-full px-4 py-1 h-8 text-[10px] font-black uppercase tracking-widest shadow-sm"
-          >
-            Historial
-          </Button>
-          <Button 
-            variant={activeTab === "catalogo" ? "default" : "outline"}
-            onClick={() => setActiveTab("catalogo")}
-            className="rounded-full px-4 py-1 h-8 text-[10px] font-black uppercase tracking-widest shadow-sm"
-          >
-            Catálogo
-          </Button>
-          <Button 
-            variant="outline"
-            onClick={handleExportSupport}
-            className="rounded-full px-4 py-1 h-8 text-[10px] font-black uppercase tracking-widest shadow-sm border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-          >
-            <Download className="w-3.5 h-3.5 mr-2" />
-            Excel
-          </Button>
-          <Button 
-            variant="outline"
-            onClick={handleExportSupportPDF}
-            className="rounded-full px-4 py-1 h-8 text-[10px] font-black uppercase tracking-widest shadow-sm border-red-200 text-red-600 hover:bg-red-50"
-          >
-            <FileText className="w-3.5 h-3.5 mr-2" />
-            PDF
-          </Button>
+    <div className="space-y-4 sm:space-y-5 pb-24">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-800 dark:from-indigo-900 dark:via-slate-800 dark:to-indigo-950 p-6 sm:p-8 rounded-[2rem] shadow-xl relative overflow-hidden border border-indigo-500/20">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-white/10 via-transparent to-transparent pointer-events-none"></div>
+        <div className="relative z-10 text-white flex-1">
+          <h2 className="text-3xl sm:text-4xl font-black tracking-tight mb-2 drop-shadow-sm">Apoyo Interno</h2>
+          <p className="text-indigo-200/90 font-medium text-sm sm:text-base tracking-wide max-w-md">Control de consumo diario y seguimiento de inventario del personal de apoyo.</p>
         </div>
+        <div className="relative z-10 w-full sm:w-auto">
+            <Button onClick={handleExport} className="w-full sm:w-auto bg-white hover:bg-slate-50 text-indigo-700 border-0 rounded-2xl h-14 sm:h-14 px-6 shadow-lg shadow-black/10 font-black text-sm uppercase tracking-widest transition-transform active:scale-95">
+              <Download className="w-5 h-5 mr-2" />
+              <span>Exportar XLS</span>
+            </Button>
+        </div>
+        <div className="absolute -right-6 -bottom-6 text-white/10 pointer-events-none">
+            <PackagePlus className="w-48 h-48 sm:w-64 sm:h-64" />
+        </div>
+      </div>
 
-        <TabsContent value="registro" className="animate-in fade-in duration-500">
-          <div className="flex flex-col gap-6">
-            {/* Sidebar Controls - Stacked vertical */}
-            <div className="col-span-12 space-y-4">
-               <Card className="border-none shadow-xl rounded-3xl overflow-hidden bg-white">
-                  <CardHeader className="bg-slate-900 text-white p-6">
-                    <CardTitle className="flex items-center gap-2 text-lg font-black">
-                      <CalendarIcon className="w-5 h-5 text-indigo-400" />
-                      Fecha de Conteo
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-2 flex justify-center">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={(date) => date && setSelectedDate(date)}
-                      locale={es}
-                      className="rounded-2xl border-none shadow-inner bg-slate-50 w-full"
-                    />
-                  </CardContent>
-               </Card>
+      <Tabs defaultValue="consumo" className="w-full">
+      <div className="w-full pb-4 sm:pb-6 flex justify-center">
+        <TabsList className="relative z-10 flex w-full sm:w-auto bg-slate-100/80 dark:bg-slate-800/60 p-1.5 rounded-2xl shadow-inner border border-slate-200/50 dark:border-slate-700/50 gap-1 overflow-x-auto scrollbar-hide">
+          <TabsTrigger value="consumo" className="flex-1 sm:flex-none min-w-[100px] rounded-[0.85rem] px-3 sm:px-6 py-2.5 sm:py-3 font-black text-[10px] sm:text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-300 data-[state=active]:shadow-sm transition-all duration-300 flex flex-col sm:flex-row items-center justify-center gap-1.5 hover:text-slate-900 dark:hover:text-slate-200">
+            <ClipboardList className="w-4 h-4 sm:shrink-0" />
+            <span className="truncate leading-none">Consumo</span>
+          </TabsTrigger>
+          <TabsTrigger value="catalogo" className="flex-1 sm:flex-none min-w-[100px] rounded-[0.85rem] px-3 sm:px-6 py-2.5 sm:py-3 font-black text-[10px] sm:text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-300 data-[state=active]:shadow-sm transition-all duration-300 flex flex-col sm:flex-row items-center justify-center gap-1.5 hover:text-slate-900 dark:hover:text-slate-200">
+            <Tags className="w-4 h-4 sm:shrink-0" />
+            <span className="truncate leading-none">Catálogo</span>
+          </TabsTrigger>
+          <TabsTrigger value="historial" className="flex-1 sm:flex-none min-w-[100px] rounded-[0.85rem] px-3 sm:px-6 py-2.5 sm:py-3 font-black text-[10px] sm:text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-300 data-[state=active]:shadow-sm transition-all duration-300 flex flex-col sm:flex-row items-center justify-center gap-1.5 hover:text-slate-900 dark:hover:text-slate-200">
+            <History className="w-4 h-4 sm:shrink-0" />
+            <span className="truncate leading-none">Historial</span>
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
-               <Card className="border-none shadow-lg rounded-3xl overflow-hidden bg-slate-900 text-white">
-                  <CardContent className="p-5 space-y-4">
-                      
-                      {user.role !== "viewer" && (
-                        <div className="space-y-2">
-                          <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Notas</Label>
-                          <textarea 
-                             className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs focus:ring-1 focus:ring-indigo-500 min-h-[80px] transition-all font-medium text-slate-900 dark:text-slate-100"
-                             placeholder="Observaciones..."
-                             value={localNote}
-                             onChange={e => setLocalNote(e.target.value)}
-                          />
-                       </div>
-                      )}
-                      {user.role !== "viewer" && (
-                        <Button 
-                           className="w-full bg-indigo-600 hover:bg-indigo-700 h-12 rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 transition-all text-xs"
-                           onClick={handleSave}
-                           disabled={isSaving || (data.supportProducts || []).length === 0}
-                        >
-                           <Save className="w-4 h-4 mr-2" />
-                           {existingRecord ? 'Actualizar' : 'Guardar'}
-                        </Button>
-                      )}
-                  </CardContent>
-               </Card>
-            </div>
-
-            {/* Main Products Grid - Vertical feed */}
-            <div className="col-span-12">
-               <div className="bg-white rounded-3xl border border-slate-100 shadow-xl flex flex-col h-[60vh]">
-                  <div className="p-5 border-b border-slate-100 bg-slate-50 rounded-t-3xl space-y-4">
-                     <div className="flex justify-between items-center">
-                        <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
-                           <Layers className="w-5 h-5 text-indigo-600" />
-                           Insumos
-                        </h2>
-                        <Input 
-                           placeholder="Buscar producto..."
-                           className="w-48 bg-white dark:bg-slate-800 border-none text-xs rounded-xl h-8 text-slate-900 dark:text-slate-100"
-                           value={searchTerm}
-                           onChange={e => setSearchTerm(e.target.value)}
-                        />
-                     </div>
-                     
-                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
-                        <Button
-                           variant={selectedCategory === null ? "default" : "outline"}
-                           size="sm"
-                           onClick={() => setSelectedCategory(null)}
-                           className={`rounded-full px-3 h-7 text-[9px] font-black uppercase tracking-widest ${selectedCategory === null ? "bg-indigo-600" : "bg-white text-slate-400 border-slate-200"}`}
-                        >
-                           Todo
-                        </Button>
-                        {(data.supportCategories || []).map(cat => (
-                           <Button
-                              key={cat.id}
-                              variant={selectedCategory === cat.name ? "default" : "outline"}
-                              size="sm"
-                              onClick={() => setSelectedCategory(cat.name)}
-                              className={`rounded-full px-3 h-7 text-[9px] font-black uppercase tracking-widest shrink-0 ${selectedCategory === cat.name ? "bg-indigo-600" : "bg-white text-slate-400 border-slate-200"}`}
-                           >
-                              {cat.name}
-                           </Button>
-                        ))}
-                     </div>
+        <div className="mt-6">
+            <TabsContent value="consumo" className="space-y-6 focus:outline-none mt-0 animate-in fade-in zoom-in-95 duration-300">
+              {/* Consumo Form */}
+              <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-5 sm:p-8 shadow-sm border border-slate-100 dark:border-slate-800">
+                <div className="mb-8 flex items-center gap-4 border-b border-slate-100 dark:border-slate-800/60 pb-6">
+                    <div className="bg-indigo-50 dark:bg-indigo-900/40 p-3 rounded-2xl text-indigo-600 dark:text-indigo-400 shrink-0">
+                        <UserCircle className="w-8 h-8" />
+                    </div>
+                    <div>
+                        <h3 className="font-black text-xl sm:text-2xl text-slate-800 dark:text-slate-100 leading-tight">Registrar Consumo</h3>
+                        <p className="text-[11px] sm:text-xs font-black text-slate-500 uppercase mt-1 tracking-widest">Asignación de cocinero y productos</p>
+                    </div>
+                </div>
+                <form onSubmit={handleAddConsume} className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 sm:gap-6">
+                      <div className="space-y-2">
+                          <Label className="text-[11px] font-black text-slate-500 uppercase ml-1 tracking-widest">Fecha del Consumo</Label>
+                          <Input type="date" value={consumeDate} onChange={(e) => setConsumeDate(e.target.value)} className="h-16 flex items-center w-full rounded-2xl bg-slate-50 dark:bg-slate-800/80 border-none focus:ring-2 ring-indigo-500/20 text-base sm:text-lg font-bold px-5 shadow-inner text-slate-800 dark:text-slate-100 cursor-pointer" />
+                      </div>
+                      <div className="space-y-2">
+                          <Label className="text-[11px] font-black text-slate-500 uppercase ml-1 tracking-widest">Turno</Label>
+                          <Select value={consumeShift} onValueChange={setConsumeShift}>
+                              <SelectTrigger className="h-16 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border-none focus:ring-2 ring-indigo-500/20 text-base sm:text-lg font-bold px-5 shadow-inner text-slate-800 dark:text-slate-100">
+                                  <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-2xl border-none shadow-2xl">
+                                  <SelectItem value="Día" className="rounded-xl py-4 flex items-center cursor-pointer font-bold"><div className="flex items-center gap-3"><Sun className="w-5 h-5 text-amber-500" /> Día</div></SelectItem>
+                                  <SelectItem value="Noche" className="rounded-xl py-4 flex items-center cursor-pointer font-bold"><div className="flex items-center gap-3"><Moon className="w-5 h-5 text-indigo-500" /> Noche</div></SelectItem>
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                      <Label className="text-[11px] font-black text-slate-500 uppercase ml-1 tracking-widest">Cocinero / Personal Responsable</Label>
+                      <Input placeholder="Nombre de quien retira..." value={consumeCook} onChange={(e) => setConsumeCook(e.target.value)} className="h-16 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border-none focus:ring-2 ring-indigo-500/20 text-base sm:text-lg font-bold px-5 shadow-inner placeholder:text-slate-400 placeholder:font-medium" />
                   </div>
 
-                      <div className="flex-1 overflow-y-auto pr-2">
-                         <div className="p-4 space-y-4">
-                            {supportCategoriesWithProducts.length === 0 ? (
-                              <div className="h-40 flex flex-col items-center justify-center text-center opacity-40 italic text-slate-400">
-                                 <PackagePlus className="w-10 h-10 mb-2" />
-                                 <p className="text-xs font-black uppercase tracking-widest">Catálogo vacío</p>
-                              </div>
-                            ) : (
-                              supportCategoriesWithProducts.map(cat => (
-                                <div key={cat.id} className="space-y-2">
-                                   <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] pt-2 pb-1 bg-white sticky top-0 z-10 border-b border-slate-100">{cat.name}</div>
-                                   <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1">
-                                      {cat.products.map(p => (
-                                        <div key={p.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
-                                           <div className="flex flex-col pr-2 flex-1">
-                                              <span className="text-xs font-black text-slate-800 uppercase tracking-tight line-clamp-1">{p.name}</span>
-                                              <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5">{p.unit}</span>
-                                           </div>
-                                           {user.role !== "viewer" && (
-                                             <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-white shadow-sm hover:bg-slate-50 text-slate-400" onClick={() => updateCount(p.id, -1)}><Minus className="w-3 h-3" /></Button>
-                                                <Input 
-                                                   type="number"
-                                                   className="w-12 h-7 text-center font-black text-indigo-600 text-xs rounded-lg border-none bg-white dark:bg-slate-800 p-0 dark:text-slate-100"
-                                                   value={localCounts[p.id] || 0}
-                                                   onChange={(e) => handleManualCountChange(p.id, e.target.value)}
-                                                />
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 rounded-lg bg-indigo-600 shadow-sm text-white" onClick={() => updateCount(p.id, 1)}><Plus className="w-3 h-3" /></Button>
-                                             </div>
-                                           )}
-                                        </div>
-                                      ))}
-                                      {cat.products.length === 0 && <p className="text-[9px] text-slate-300 italic px-2">Sin productos</p>}
-                                   </div>
-                                </div>
-                              ))
-                            )}
-                         </div>
+                  {/* Add Product Section */}
+                  <div className="mt-8 bg-slate-50 dark:bg-slate-800/40 p-5 sm:p-7 rounded-[2rem] border border-slate-200/60 dark:border-slate-700/50">
+                      <h4 className="font-black text-xs uppercase tracking-widest text-indigo-600 dark:text-indigo-400 mb-5 flex items-center gap-2">
+                          <PlusCircle className="w-5 h-5" />
+                          Añadir Productos Gastados
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                          <div className="md:col-span-4">
+                              <Select value={consumeItemCat} onValueChange={(val) => { setConsumeItemCat(val); setConsumeItemProd(""); }}>
+                                <SelectTrigger className="h-16 rounded-2xl bg-white dark:bg-slate-900 border-none shadow-sm text-base font-bold px-5"><SelectValue placeholder="Categoría..." /></SelectTrigger>
+                                <SelectContent className="rounded-2xl border-none shadow-2xl">{supportCategories.map((c: any) => <SelectItem key={c.id} value={c.id} className="py-3 rounded-xl cursor-pointer font-semibold">{c.name}</SelectItem>)}</SelectContent>
+                              </Select>
+                          </div>
+                          
+                          <div className="md:col-span-4">
+                              <Select value={consumeItemProd} onValueChange={setConsumeItemProd} disabled={!consumeItemCat}>
+                                <SelectTrigger className="h-16 rounded-2xl bg-white dark:bg-slate-900 border-none shadow-sm text-base font-bold px-5"><SelectValue placeholder="Producto..." /></SelectTrigger>
+                                <SelectContent className="rounded-2xl border-none shadow-2xl">{supportProducts.filter((p: any) => p.category === consumeItemCat).map((p: any) => <SelectItem key={p.id} value={p.id} className="py-3 rounded-xl cursor-pointer font-semibold">{p.name}</SelectItem>)}</SelectContent>
+                              </Select>
+                          </div>
+                          
+                          <div className="md:col-span-4 flex flex-row gap-3 mt-1 md:mt-0">
+                              <Input type="number" placeholder="Cant." value={consumeItemQty} onChange={(e) => setConsumeItemQty(e.target.value)} className="h-16 rounded-2xl bg-white dark:bg-slate-900 border-none shadow-sm text-lg font-black w-24 px-5 text-center shrink-0" />
+                              <Button type="button" onClick={handleAddConsumeItem} className="h-16 flex-1 rounded-2xl font-black uppercase tracking-widest bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-300 dark:hover:bg-indigo-900 shadow-none active:scale-95 transition-transform">
+                                  Añadir
+                              </Button>
+                          </div>
                       </div>
-                   </div>
-             </div>
-           </div>
-         </TabsContent>
+                  </div>
 
-        <TabsContent value="historial" className="animate-in fade-in duration-500">
-          <Card className="border-none shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
-             <CardHeader className="p-8 border-b border-slate-50">
-                <div className="flex items-center justify-between">
-                   <div>
-                      <CardTitle className="text-2xl font-black text-slate-900 flex items-center gap-2">
-                         <History className="w-7 h-7 text-indigo-600" />
-                         Registros Anteriores
-                      </CardTitle>
-                      <CardDescription className="font-bold text-xs uppercase tracking-widest text-slate-400 mt-1">
-                         Consulta y modificación de inventario histórico
-                      </CardDescription>
-                   </div>
-                   <Badge className="bg-slate-900 text-white font-mono px-4 py-1.5 rounded-full">{data.supportRecords?.length || 0} Registros</Badge>
-                </div>
-             </CardHeader>
-             <CardContent className="p-0">
-                <div className="grid grid-cols-1 lg:grid-cols-12">
-                   <div className="lg:col-span-5 p-8 border-r border-slate-50 bg-slate-50/30">
-                      <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={(date) => date && setSelectedDate(date)}
-                        locale={es}
-                        className="rounded-3xl border border-slate-100 bg-white shadow-xl p-4 w-full max-w-sm mx-auto"
-                        modifiers={{
-                           hasData: (date) => !!data.supportRecords?.some(r => isSameDay(new Date(r.date + "T12:00:00"), date))
-                        }}
-                        modifiersClassNames={{
-                           hasData: "bg-indigo-50 font-bold text-indigo-700 ring-2 ring-indigo-500/20"
-                        }}
-                      />
-                   </div>
-                    <div className="lg:col-span-12 p-8 flex flex-col h-[700px] bg-white">
-                      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4 border-b border-slate-50 pb-6">
-                         <div>
-                            <h3 className="font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 text-xl">
-                                Detalle del día {existingRecord && <Badge className="bg-indigo-600 font-mono text-[10px]">ID: {existingRecord.id.substring(0,8)}</Badge>}
-                            </h3>
-                            <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest flex items-center gap-2">
-                               <CalendarIcon className="w-3.5 h-3.5" />
-                               {format(selectedDate, "PPP", { locale: es })}
-                            </p>
-                         </div>
-                         <div className="flex items-center gap-3 w-full md:w-auto">
-                            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 max-w-[200px] md:max-w-md">
-                               <Button
-                                  variant={selectedHistoryCategory === null ? "default" : "outline"}
-                                  size="sm"
-                                  onClick={() => setSelectedHistoryCategory(null)}
-                                  className={`rounded-full px-3 h-7 text-[9px] font-black uppercase tracking-widest ${selectedHistoryCategory === null ? "bg-indigo-600 text-white" : "bg-white text-slate-400 border-slate-200"}`}
-                               >
-                                  Todo
-                               </Button>
-                               {Array.from(new Set((existingRecord?.items || []).map(i => i.category))).filter(Boolean).map(catName => (
-                                  <Button
-                                     key={catName}
-                                     variant={selectedHistoryCategory === catName ? "default" : "outline"}
-                                     size="sm"
-                                     onClick={() => setSelectedHistoryCategory(catName)}
-                                     className={`rounded-full px-3 h-7 text-[9px] font-black uppercase tracking-widest shrink-0 ${selectedHistoryCategory === catName ? "bg-indigo-600 text-white" : "bg-white text-slate-400 border-slate-200"}`}
-                                  >
-                                     {catName}
+                  {/* Added Items List */}
+                  {consumeItems.length > 0 && (
+                      <div className="space-y-3 pt-3">
+                          <Label className="text-[11px] font-black text-slate-500 uppercase ml-1 tracking-widest">Lista Guardada (Sin Registrar Aún)</Label>
+                          {consumeItems.map((item, index) => (
+                              <div key={index} className="flex justify-between items-center bg-indigo-50/70 dark:bg-indigo-900/20 p-4 sm:p-5 rounded-[1.5rem] border border-indigo-100 dark:border-indigo-800/50">
+                                  <div className="flex items-center gap-4 min-w-0 flex-1">
+                                      <div className="bg-white dark:bg-slate-900 w-12 h-12 rounded-[1rem] flex items-center justify-center font-black text-indigo-600 dark:text-indigo-400 text-sm shadow-sm shrink-0 border border-indigo-100 dark:border-indigo-800/50">
+                                          {item.quantity}
+                                      </div>
+                                      <div className="min-w-0 pr-2">
+                                        <div className="font-black text-base text-slate-800 dark:text-slate-100 leading-tight truncate">{item.name}</div>
+                                        <div className="text-[10px] uppercase font-black text-indigo-500/70 mt-1 tracking-widest">{item.unit}</div>
+                                      </div>
+                                  </div>
+                                  <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveConsumeItem(index)} className="w-12 h-12 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 shrink-0">
+                                      <Trash2 className="w-5 h-5" />
                                   </Button>
-                               ))}
-                            </div>
-                            <div className="relative flex-1 md:w-64">
-                               <History className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                               <Input 
-                                  placeholder="Filtrar registros..." 
-                                  className="pl-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-xs font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100"
-                                  value={historySearchTerm}
-                                  onChange={e => setHistorySearchTerm(e.target.value)}
-                               />
-                            </div>
-                            {existingRecord && user.role !== "viewer" && (
-                              <div className="flex gap-2">
-                                 <Button variant="outline" className="rounded-xl font-bold uppercase text-[10px] tracking-widest border-slate-200 h-10 shadow-sm" onClick={() => setActiveTab("registro")}>Modificar</Button>
-                                 <AlertDialog>
-                                    <AlertDialogTrigger className="rounded-xl h-10 w-10 p-0 bg-slate-50 text-slate-300 hover:text-red-500 hover:bg-red-50 inline-flex items-center justify-center transition-all border border-slate-100 shadow-sm">
-                                       <Trash2 className="w-5 h-5"/>
-                                    </AlertDialogTrigger>
-                                    <AlertDialogContent className="rounded-3xl border-none p-8 shadow-2xl">
-                                       <AlertDialogHeader>
-                                          <AlertDialogTitle className="text-xl font-black uppercase italic text-slate-900">¿Eliminar Registro?</AlertDialogTitle>
-                                          <AlertDialogDescription className="text-sm font-bold text-slate-400">
-                                             Esta acción borrará permanentemente los datos del día {format(selectedDate, "PPP", { locale: es })}.
-                                          </AlertDialogDescription>
-                                       </AlertDialogHeader>
-                                       <AlertDialogFooter className="mt-6 flex gap-3">
-                                          <AlertDialogCancel className="rounded-xl font-bold uppercase tracking-widest text-[10px] flex-1">Cancelar</AlertDialogCancel>
-                                          <AlertDialogAction 
-                                             className="rounded-xl bg-red-600 hover:bg-red-700 font-black uppercase tracking-widest text-[10px] px-8 flex-1"
-                                             onClick={() => handleDeleteRecord(dateStr)}
-                                          >
-                                             Eliminar Ahora
-                                          </AlertDialogAction>
-                                       </AlertDialogFooter>
-                                    </AlertDialogContent>
-                                 </AlertDialog>
                               </div>
-                           )}
-                         </div>
-                      </div>
-
-                      <div className="flex-1 overflow-y-auto no-scrollbar pr-1">
-                         {existingRecord ? (
-                           <div className="space-y-6">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                 {existingRecord.items
-                                   .filter(item => 
-                                     (item.name.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-                                     item.category.toLowerCase().includes(historySearchTerm.toLowerCase())) &&
-                                     (!selectedHistoryCategory || item.category === selectedHistoryCategory)
-                                   )
-                                   .map((item, idx) => (
-                                   <div key={idx} className="p-5 bg-white border border-slate-100 rounded-3xl flex items-center justify-between shadow-sm hover:border-indigo-100 hover:shadow-md transition-all group active:scale-[0.98]">
-                                      <div className="flex-1 min-w-0 pr-4">
-                                         <p className="text-sm font-black text-slate-800 uppercase break-words leading-tight group-hover:text-indigo-600 transition-colors">{item.name}</p>
-                                         <p className="text-[9px] text-slate-400 font-bold mt-1.5 uppercase leading-none tracking-widest">{item.category}</p>
-                                      </div>
-                                      <div className="text-right bg-slate-50 px-3 py-2 rounded-2xl group-hover:bg-indigo-50 transition-colors">
-                                         <p className="text-xl font-black text-indigo-600 font-mono leading-none">{item.quantity}</p>
-                                         <p className="text-[9px] text-slate-400 uppercase font-black tracking-tighter mt-1">{item.unit}</p>
-                                      </div>
-                                   </div>
-                                 ))}
-                              </div>
-
-                              {existingRecord.items.filter(item => 
-                                (item.name.toLowerCase().includes(historySearchTerm.toLowerCase()) ||
-                                item.category.toLowerCase().includes(historySearchTerm.toLowerCase())) &&
-                                (!selectedHistoryCategory || item.category === selectedHistoryCategory)
-                              ).length === 0 && (
-                                <div className="py-20 text-center text-slate-300">
-                                   <p className="text-xs font-bold uppercase tracking-widest">No hay resultados para esta búsqueda</p>
-                                </div>
-                              )}
-
-                              {existingRecord.note && !historySearchTerm && (
-                                <div className="p-6 rounded-3xl bg-indigo-50/50 border border-indigo-100 shadow-inner">
-                                   <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                      <ClipboardList className="w-3.5 h-3.5" />
-                                      Nota del Registro
-                                   </p>
-                                   <p className="text-sm text-slate-700 font-medium leading-relaxed italic">"{existingRecord.note}"</p>
-                                </div>
-                              )}
-                           </div>
-                         ) : (
-                           <div className="h-full flex flex-col items-center justify-center opacity-30 italic text-slate-400 py-32 border-2 border-dashed border-slate-100 rounded-[2.5rem]">
-                              <TableProperties className="w-16 h-16 mb-4" />
-                              <p className="text-lg font-black uppercase tracking-[0.2em]">Seleccione un día con datos</p>
-                           </div>
-                         )}
-                      </div>
-                   </div>
-                </div>
-             </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="catalogo" className="animate-in fade-in duration-500">
-           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              <Card className="lg:col-span-4 border-none shadow-xl rounded-2xl overflow-hidden bg-white">
-                 <CardHeader className="bg-slate-900 text-white p-6">
-                    <CardTitle className="text-lg font-black uppercase tracking-tight flex items-center gap-2">
-                       <Settings2 className="w-5 h-5 text-indigo-400" />
-                       Gestión Maestra
-                    </CardTitle>
-                 </CardHeader>
-                 <CardContent className="p-6 space-y-6">
-                    <div className="space-y-4">
-                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Nuevo Bloque de Apoyo</h4>
-                       <div className="flex gap-2">
-                          <Input 
-                             placeholder="Ex: Limpieza..." 
-                             className="rounded-xl border-slate-200 h-10 text-black text-sm"
-                             value={newCategoryName}
-                             onChange={e => setNewCategoryName(e.target.value)}
-                          />
-                          <Button 
-                             onClick={addCategory}
-                             className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-10 px-4 shadow-lg shadow-indigo-200"
-                          >
-                             <Plus className="w-4 h-4" />
-                          </Button>
-                       </div>
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-slate-50">
-                       <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Nuevo Artículo de Apoyo</h4>
-                       <div className="space-y-3">
-                          <div className="space-y-1">
-                             <Label className="text-[9px] font-bold text-slate-500 uppercase ml-1">Nombre</Label>
-                             <Input 
-                                placeholder="Escobas, Cloro..." 
-                                className="rounded-xl border-slate-200 h-10 text-black text-sm"
-                                value={newProduct.name}
-                                onChange={e => setNewProduct({...newProduct, name: e.target.value})}
-                             />
-                          </div>
-                          <div className="space-y-1">
-                             <Label className="text-[9px] font-bold text-slate-500 uppercase ml-1">Categoría</Label>
-                             <Select value={newProduct.category} onValueChange={v => setNewProduct({...newProduct, category: v})}>
-                                <SelectTrigger className="rounded-xl border-slate-200 h-10 text-slate-900 text-sm">
-                                   <SelectValue placeholder="Seleccione Bloque" />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-xl">
-                                   {(data.supportCategories || []).map(c => (
-                                      <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>
-                                   ))}
-                                </SelectContent>
-                             </Select>
-                          </div>
-                          <div className="space-y-1">
-                             <Label className="text-[9px] font-bold text-slate-500 uppercase ml-1">Unidad</Label>
-                             <Input 
-                                placeholder="uds, lts, kg..." 
-                                className="rounded-xl border-slate-200 h-10 text-black text-sm"
-                                value={newProduct.unit}
-                                onChange={e => setNewProduct({...newProduct, unit: e.target.value})}
-                             />
-                          </div>
-                          <Button 
-                             onClick={addProduct}
-                             className="w-full bg-slate-900 hover:bg-black text-white rounded-xl h-10 font-bold uppercase tracking-widest text-[10px] shadow-lg shadow-slate-200"
-                          >
-                             <PackagePlus className="w-3.5 h-3.5 mr-2" />
-                             Registrar en Catálogo
-                          </Button>
-                       </div>
-                    </div>
-                 </CardContent>
-              </Card>
-
-              <Card className="lg:col-span-8 border-none shadow-xl rounded-2xl overflow-hidden bg-white">
-                 <CardHeader className="bg-slate-50 border-b border-slate-100 p-6">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                       <CardTitle className="text-lg font-black uppercase tracking-tight text-slate-900">
-                          Catálogo Actual de Apoyo
-                       </CardTitle>
-                       <div className="relative w-full md:w-64">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                          <Input 
-                             placeholder="Buscar en catálogo..."
-                             className="pl-10 h-9 rounded-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-xs font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100"
-                             value={catalogSearchTerm}
-                             onChange={e => setCatalogSearchTerm(e.target.value)}
-                          />
-                       </div>
-                    </div>
-                 </CardHeader>
-                 <CardContent className="p-0">
-                    <ScrollArea className="h-[600px]">
-                       <div className="p-6 space-y-8">
-                          {(data.supportCategories || [])
-                             .filter(cat => 
-                               cat.name.toLowerCase().includes(catalogSearchTerm.toLowerCase()) ||
-                               (data.supportProducts || []).some(p => p.category === cat.name && p.name.toLowerCase().includes(catalogSearchTerm.toLowerCase()))
-                             )
-                             .map(cat => (
-                             <div key={cat.id} className="space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-2 bg-white sticky top-0 z-10 py-2">
-                                   <h5 className="text-[11px] font-black text-indigo-600 uppercase tracking-[0.3em]">{cat.name}</h5>
-                                   <Button 
-                                      variant="ghost" 
-                                      size="icon" 
-                                      className="h-7 w-7 text-slate-300 hover:text-red-500 rounded-lg"
-                                      onClick={() => deleteCategory(cat.id)}
-                                   >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                   </Button>
-                                </div>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                   {(data.supportProducts || [])
-                                      .filter(p => p.category === cat.name)
-                                      .filter(p => p.name.toLowerCase().includes(catalogSearchTerm.toLowerCase()))
-                                      .map(p => (
-                                      <div key={p.id} className="p-4 bg-slate-50/50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:bg-white hover:border-indigo-100 hover:shadow-md transition-all">
-                                         <div>
-                                            <p className="text-xs font-black text-slate-800 uppercase line-clamp-1">{p.name}</p>
-                                            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">{p.unit}</p>
-                                         </div>
-                                         <Button 
-                                            variant="ghost" 
-                                            size="icon" 
-                                            className="h-8 w-8 text-slate-200 group-hover:text-red-400 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                                            onClick={() => deleteProduct(p.id)}
-                                         >
-                                            <Trash2 className="w-4 h-4" />
-                                         </Button>
-                                      </div>
-                                   ))}
-                                   {(data.supportProducts || [])
-                                      .filter(p => p.category === cat.name)
-                                      .filter(p => p.name.toLowerCase().includes(catalogSearchTerm.toLowerCase()))
-                                      .length === 0 && (
-                                      <p className="text-[10px] text-slate-300 italic p-4 col-span-full text-center border-2 border-dashed border-slate-50 rounded-2xl">Sin artículos que coincidan</p>
-                                   )}
-                                </div>
-                             </div>
                           ))}
-                          {(data.supportCategories || []).length === 0 && (
-                             <div className="h-64 flex flex-col items-center justify-center text-slate-300 opacity-40 italic">
-                                <Layers className="w-12 h-12 mb-4" />
-                                <p className="text-sm font-black uppercase tracking-widest">Catálogo Vacío</p>
+                      </div>
+                  )}
+
+                  <Button type="submit" disabled={isLoading || consumeItems.length === 0} className="w-full h-16 font-black text-base uppercase tracking-widest bg-indigo-600 hover:bg-indigo-700 text-white rounded-[1.25rem] mt-6 shadow-xl shadow-indigo-600/20 transition-transform active:scale-95">
+                      Registrar Consumo Completo
+                  </Button>
+                </form>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="catalogo" className="space-y-6 focus:outline-none mt-0">
+                <div className="flex flex-col gap-5 bg-white dark:bg-slate-900 rounded-[2rem] p-5 sm:p-6 shadow-sm border border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                          <h3 className="font-black text-lg text-slate-800 dark:text-slate-100 pl-1 leading-none">Bloques y Productos</h3>
+                          <p className="text-xs font-bold text-slate-500 uppercase mt-1 pl-1 tracking-wider">Gestión de catálogo interno</p>
+                      </div>
+                      <Dialog open={isAddingCategory} onOpenChange={setIsAddingCategory}>
+                          <DialogTrigger className="h-14 mt-4 sm:mt-0 sm:h-12 w-full flex items-center justify-center sm:w-auto px-6 rounded-2xl bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 shadow-none font-black text-xs uppercase tracking-wide transition-colors shrink-0">
+                              <Plus className="w-4 h-4 mr-1.5" />
+                              Nuevo Bloque
+                          </DialogTrigger>
+                          <DialogContent className="rounded-[2rem] w-[95%] max-w-sm p-0 overflow-hidden bg-white dark:bg-slate-900 border-none">
+                             <div className="p-6 sm:p-8 space-y-6">
+                                <div className="text-center">
+                                    <div className="bg-indigo-100 dark:bg-indigo-900/50 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-4 rotate-3 shadow-sm">
+                                        <FolderPlus className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                                    </div>
+                                    <h3 className="font-black text-2xl tracking-tight">Nuevo Bloque</h3>
+                                    <p className="text-sm font-medium text-slate-500 mt-1">Crea una categoría para organizar.</p>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Nombre</Label>
+                                        <Input placeholder="Ej. Abarrotes, Verduras..." value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} className="h-14 rounded-2xl text-base px-4 bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 ring-indigo-500/20" autoFocus />
+                                    </div>
+                                    <Button onClick={handleAddCategory} disabled={!newCategoryName} className="w-full h-14 font-black text-base rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-600/20 active:scale-[0.98] transition-transform">
+                                        Crear Bloque
+                                    </Button>
+                                </div>
                              </div>
-                          )}
+                          </DialogContent>
+                      </Dialog>
+                  </div>
+
+                  <div className="flex gap-3 overflow-x-auto pb-4 -mx-5 px-5 sm:-mx-6 sm:px-6 scrollbar-hide snap-x">
+                    <button onClick={() => setSelectedCategory(null)} 
+                            className={`snap-start shrink-0 px-6 py-4 rounded-[1.25rem] font-black text-sm transition-all border-2 ${selectedCategory === null ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-600/20' : 'bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'}`}>
+                        Todos
+                    </button>
+                    {supportCategories.map((c: any) => (
+                        <div key={c.id} className="relative group snap-start shrink-0">
+                            <button onClick={() => setSelectedCategory(c.id)} 
+                                    className={`px-6 py-4 rounded-[1.25rem] font-black text-sm transition-all border-2 pr-14 ${selectedCategory === c.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-600/20' : 'bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300'}`}>
+                                {c.name}
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteCategory(c.id); }} className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-colors ${selectedCategory === c.id ? 'text-indigo-200 hover:text-white hover:bg-indigo-500' : 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30'}`}>
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ))}
+                  </div>
+
+                  {/* Search & Actions */}
+                  <div className="flex items-center gap-3 bg-slate-50 dark:bg-slate-800 p-2 pl-4 rounded-[1.25rem] border border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all">
+                      <Search className="w-5 h-5 text-slate-400" />
+                      <input 
+                          type="text" 
+                          placeholder="Buscar producto en el catálogo..." 
+                          value={catalogSearch}
+                          onChange={(e) => setCatalogSearch(e.target.value)}
+                          className="flex-1 bg-transparent border-none outline-none text-base font-medium text-slate-800 dark:text-slate-100 h-12 w-full placeholder:text-slate-400"
+                      />
+                  </div>
+
+                  {/* Lista de Productos */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <Dialog open={isAddingProduct} onOpenChange={setIsAddingProduct}>
+                        <DialogTrigger className="w-full h-auto min-h-[120px] bg-indigo-50 dark:bg-indigo-900/20 border-2 border-dashed border-indigo-200 dark:border-indigo-800/50 rounded-[1.5rem] flex flex-col items-center justify-center text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 hover:border-indigo-300 transition-all font-black text-sm active:scale-95 p-4 gap-3">
+                            <Plus className="w-8 h-8" /> 
+                            <span>Añadir Producto</span>
+                        </DialogTrigger>
+                        <DialogContent className="rounded-[2rem] w-[95%] max-w-md p-0 overflow-hidden bg-white dark:bg-slate-900 border-none">
+                             <div className="p-6 sm:p-8 space-y-6">
+                                <div className="text-center">
+                                    <div className="bg-indigo-100 dark:bg-indigo-900/50 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-4 rotate-3 shadow-sm">
+                                        <PackagePlus className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                                    </div>
+                                    <h3 className="font-black text-2xl tracking-tight">Nuevo Producto</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Bloque / Categoría</Label>
+                                        <Select value={selectedCategory || ''} onValueChange={setSelectedCategory}>
+                                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none text-base px-4 font-medium">
+                                                <SelectValue placeholder="Seleccionar bloque..." />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-2xl border-none shadow-xl">
+                                                {supportCategories.map((c:any) => <SelectItem key={c.id} value={c.id} className="py-3 cursor-pointer">{c.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Nombre del Producto</Label>
+                                        <Input placeholder="Ej. Arroz Blanco" value={newProductData.name} onChange={(e) => setNewProductData({...newProductData, name: e.target.value})} className="h-14 rounded-2xl text-base px-4 bg-slate-50 dark:bg-slate-800 border-none focus:ring-2 ring-indigo-500/20" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1">Unidad de Medida</Label>
+                                        <Select value={newProductData.unit} onValueChange={(v) => setNewProductData({...newProductData, unit: v})}>
+                                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none text-base px-4 font-medium">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-2xl border-none shadow-xl">
+                                                <SelectItem value="Kilos" className="py-3 cursor-pointer">Kilos (kg)</SelectItem>
+                                                <SelectItem value="Gramos" className="py-3 cursor-pointer">Gramos (g)</SelectItem>
+                                                <SelectItem value="Litros" className="py-3 cursor-pointer">Litros (L)</SelectItem>
+                                                <SelectItem value="Unidades" className="py-3 cursor-pointer">Unidades (und)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Button onClick={handleAddProduct} disabled={!newProductData.name || !selectedCategory} className="w-full h-14 font-black text-base rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-600/20 active:scale-[0.98] transition-transform mt-2">
+                                        Guardar Producto
+                                    </Button>
+                                </div>
+                             </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    <Dialog open={isEditingProduct} onOpenChange={setIsEditingProduct}>
+                        <DialogContent className="rounded-[2rem] w-[95%] max-w-md p-0 overflow-hidden bg-white dark:bg-slate-900 border-none">
+                             <div className="p-6 sm:p-8 space-y-6">
+                                <div className="text-center">
+                                    <div className="bg-indigo-100 dark:bg-indigo-900/50 w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-4 rotate-3 shadow-sm border border-indigo-200/50 dark:border-indigo-800/50">
+                                        <Pencil className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                                    </div>
+                                    <h3 className="font-black text-2xl tracking-tight text-slate-800 dark:text-slate-100">Editar Producto</h3>
+                                </div>
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1 tracking-widest">Bloque / Categoría</Label>
+                                        <Select value={editProductData.category} onValueChange={(v) => setEditProductData({...editProductData, category: v})}>
+                                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none text-base px-4 font-bold shadow-inner">
+                                                <SelectValue placeholder="Seleccionar bloque..." />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-2xl border-none shadow-xl">
+                                                {supportCategories.map((c:any) => <SelectItem key={c.id} value={c.id} className="py-3 cursor-pointer font-semibold">{c.name}</SelectItem>)}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1 tracking-widest">Nombre del Producto</Label>
+                                        <Input placeholder="Ej. Arroz Blanco" value={editProductData.name} onChange={(e) => setEditProductData({...editProductData, name: e.target.value})} className="h-14 rounded-2xl text-base font-bold px-4 bg-slate-50 dark:bg-slate-800 border-none shadow-inner focus:ring-2 ring-indigo-500/20 text-slate-800 dark:text-slate-100" />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-[11px] font-bold text-slate-500 uppercase ml-1 tracking-widest">Unidad de Medida</Label>
+                                        <Select value={editProductData.unit} onValueChange={(v) => setEditProductData({...editProductData, unit: v})}>
+                                            <SelectTrigger className="h-14 rounded-2xl bg-slate-50 dark:bg-slate-800 border-none text-base px-4 font-bold shadow-inner">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-2xl border-none shadow-xl">
+                                                <SelectItem value="Kilos" className="py-3 cursor-pointer font-semibold">Kilos (kg)</SelectItem>
+                                                <SelectItem value="Gramos" className="py-3 cursor-pointer font-semibold">Gramos (g)</SelectItem>
+                                                <SelectItem value="Litros" className="py-3 cursor-pointer font-semibold">Litros (L)</SelectItem>
+                                                <SelectItem value="Unidades" className="py-3 cursor-pointer font-semibold">Unidades (und)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <Button onClick={handleEditProductSave} disabled={!editProductData.name || !editProductData.category} className="w-full h-14 font-black text-xs uppercase tracking-widest rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-xl shadow-indigo-600/20 active:scale-[0.98] transition-transform mt-4 text-white">
+                                        Guardar Cambios
+                                    </Button>
+                                </div>
+                             </div>
+                        </DialogContent>
+                    </Dialog>
+
+                    {supportProducts
+                      .filter((p: any) => (!selectedCategory || p.category === selectedCategory) && (!catalogSearch || p.name.toLowerCase().includes(catalogSearch.toLowerCase())))
+                      .map((p: any) => (
+                        <div key={p.id} className="bg-slate-50 dark:bg-slate-800/50 p-4 sm:p-5 rounded-[1.5rem] border border-slate-100 dark:border-slate-800 flex flex-col gap-3 shadow-sm hover:shadow-md transition-all group relative overflow-hidden">
+                            <div className="flex justify-between items-start w-full relative">
+                                <div className="bg-white dark:bg-slate-900 w-12 h-12 rounded-[1rem] flex items-center justify-center shrink-0 shadow-sm border border-slate-100 dark:border-slate-800">
+                                    <PackagePlus className="w-5 h-5 text-indigo-400/50 dark:text-indigo-600/50" />
+                                </div>
+                                <div className="flex items-center gap-1 absolute top-0 right-0">
+                                  <button onClick={() => {
+                                      setEditProductData({ id: p.id, name: p.name, category: p.category, unit: p.unit });
+                                      setIsEditingProduct(true);
+                                  }} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors shrink-0 bg-transparent opacity-100 sm:opacity-0 group-hover:opacity-100">
+                                      <Pencil className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button onClick={() => handleDeleteProduct(p.id)} className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors shrink-0 bg-transparent opacity-100 sm:opacity-0 group-hover:opacity-100">
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                            </div>
+                            <div className="flex-1 min-w-0 flex flex-col pr-2 mt-1">
+                                <h4 className="font-black text-base md:text-lg text-slate-800 dark:text-slate-100 break-words whitespace-normal leading-tight line-clamp-2" title={p.name}>{p.name}</h4>
+                                <div className="mt-auto pt-3 flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] sm:text-xs text-slate-500 font-black uppercase tracking-widest bg-slate-200/50 dark:bg-slate-700/50 px-2 py-1 rounded-md">{supportCategories.find(c => c.id === p.category)?.name || "General"}</span>
+                                    <span className={`shrink-0 w-max text-[10px] sm:text-xs font-black uppercase tracking-widest px-2 py-1 rounded-md border flex items-center justify-center ${(!p.quantity || p.quantity < 5) ? 'bg-red-50 text-red-600 border-red-100 dark:bg-red-900/30 dark:border-red-900/50' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-900/50'}`}>
+                                        {p.quantity || 0} {p.unit}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+            </TabsContent>
+
+            <TabsContent value="historial" className="space-y-6 focus:outline-none mt-0 animate-in fade-in zoom-in-95 duration-300">
+               <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr] gap-6">
+                   {/* Calendar Column */}
+                   <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 sm:p-8 rounded-[2rem] shadow-sm border border-slate-100 dark:border-slate-800 flex flex-col items-center sticky top-20 w-full overflow-hidden">
+                       <h3 className="font-black text-xl text-slate-800 dark:text-slate-100 w-full mb-6 text-center border-b border-slate-100 dark:border-slate-800 pb-4">Seleccionar Día</h3>
+                       <div className="w-full flex justify-center overflow-x-auto pb-4 scrollbar-none snap-x snap-mandatory">
+                           <div className="snap-center w-full flex justify-center">
+                             <Calendar
+                                mode="single"
+                                selected={selectedDate}
+                                onSelect={(newDate) => {
+                                   if(newDate) setSelectedDate(newDate);
+                                }}
+                                className="rounded-[2rem] bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-2 sm:p-4 shadow-sm w-max mx-auto"
+                                classNames={{
+                                  head_cell: "text-slate-500 font-bold uppercase tracking-widest text-[10px] sm:text-xs w-9 h-9 sm:w-11 sm:h-11",
+                                  cell: "h-9 w-9 sm:h-11 sm:w-11 text-center text-sm p-0 flex items-center justify-center",
+                                  day: "h-8 w-8 sm:h-10 sm:w-10 text-slate-700 dark:text-slate-200 font-black rounded-lg sm:rounded-2xl hover:bg-indigo-50 dark:hover:bg-indigo-900/30 transition-all",
+                                  nav_button: "h-7 w-7 sm:h-8 sm:w-8 bg-transparent text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 opacity-100 rounded-lg sm:rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors",
+                                  caption: "flex justify-between items-center w-full pt-1 pb-4 px-2 relative",
+                                  caption_label: "text-sm sm:text-base font-black uppercase tracking-widest text-slate-800 dark:text-slate-100",
+                                  day_selected: "bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white dark:bg-indigo-500 dark:hover:bg-indigo-600 opacity-100 shadow-md shadow-indigo-600/20",
+                                  day_today: "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100",
+                                  day_outside: "text-slate-300 dark:text-slate-600 font-medium",
+                                  months: "w-full",
+                                  month: "w-full space-y-4",
+                                }}
+                                modifiers={{
+                                    hasRecords: datesWithRecords
+                                }}
+                                modifiersStyles={{
+                                    hasRecords: { 
+                                        color: 'var(--color-indigo-600)',
+                                        fontWeight: '900'
+                                    }
+                                }}
+                             />
+                           </div>
                        </div>
-                    </ScrollArea>
-                 </CardContent>
-              </Card>
-           </div>
-        </TabsContent>
+                       <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center justify-center gap-6 text-[11px] font-black uppercase tracking-widest text-slate-500 w-full max-w-sm shrink-0">
+                           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/50"></span> Registros</div>
+                           <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600"></span> Vacío</div>
+                       </div>
+                   </div>
+
+                   {/* Records Column */}
+                   <div className="space-y-4">
+                       <h3 className="font-black text-lg text-slate-800 dark:text-slate-100 px-2 flex items-center justify-between">
+                           <span>Consumo del día</span>
+                           <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-xl">
+                               {selectedDate?.toLocaleDateString('es-ES', { weekday: 'short', month: 'short', day: 'numeric'})}
+                           </span>
+                       </h3>
+                       
+                       {recordsForDate.length === 0 ? (
+                           <div className="bg-slate-50 dark:bg-slate-800/30 rounded-[2rem] border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center p-12 text-center">
+                               <CalendarIcon className="w-12 h-12 text-slate-300 dark:text-slate-600 mb-4" />
+                               <p className="font-bold text-slate-500 dark:text-slate-400">No hay consumo este día</p>
+                           </div>
+                       ) : (
+                           <div className="grid gap-3">
+                               {recordsForDate.map((r: any) => (
+                                <div key={r.id} className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between sm:items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="flex items-start gap-4">
+                                        <div className={`p-4 rounded-[1.25rem] shrink-0 shadow-inner ${r.consumeShift === 'Día' ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/40' : 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40'}`}>
+                                            {r.consumeShift === 'Día' ? <Sun className="w-8 h-8" /> : <Moon className="w-8 h-8" />}
+                                        </div>
+                                        <div className="pt-1">
+                                            <div className="font-black text-xl text-slate-800 dark:text-slate-100 mb-3 leading-none">{r.userName}</div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {r.items?.map((item: any, idx: number) => (
+                                                    <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 rounded-xl">
+                                                        <span className="text-indigo-600 dark:text-indigo-400 font-black bg-indigo-50 dark:bg-indigo-900/30 px-1.5 rounded-md">{item.quantity}</span> {item.name}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <Button variant="ghost" size="icon" onClick={() => handleDelete(r.id)} className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 self-end sm:self-auto shrink-0 transition-colors border border-slate-100 dark:border-slate-700">
+                                      <Trash2 className="w-5 h-5" />
+                                    </Button>
+                                </div>
+                               ))}
+                           </div>
+                       )}
+                   </div>
+               </div>
+            </TabsContent>
+        </div>
       </Tabs>
     </div>
   );
 }
+

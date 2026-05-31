@@ -53,11 +53,10 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const deferredSearchTerm = React.useDeferredValue(searchTerm);
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
   const [editedItems, setEditedItems] = useState<any[] | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [requestToDeleteId, setRequestToDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedRequest) {
@@ -87,8 +86,7 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
     try {
       const remainingItems = editedItems.filter(item => item.quantity > 0);
       if (remainingItems.length === 0) {
-        await handleDeleteRequest(selectedRequest.id);
-        toast.success("Pedido eliminado");
+        toast.error("No puedes vaciar todos los artículos. El registro es sagrado.");
       } else {
         const res = await fetch(`/api/history/requests/${selectedRequest.id}`, {
           method: "PUT",
@@ -108,37 +106,18 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
     }
   };
 
-  const handleDeleteRequest = (id: string) => {
-    setRequestToDeleteId(id);
-    setIsDeleteDialogOpen(true);
-  };
-
-  const confirmDeleteRequest = async () => {
-    if (!requestToDeleteId) return;
-    try {
-      const res = await fetch(`/api/history/requests/${requestToDeleteId}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success("Pedido eliminado");
-        if (selectedRequest?.id === requestToDeleteId) {
-          setSelectedRequest(null);
-        }
-        setIsDeleteDialogOpen(false);
-        setRequestToDeleteId(null);
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Error al eliminar pedido");
-    }
-  };
-
   const cooks = useMemo(() => {
     return data.users.filter(u => u.role === "cook" || u.role === "admin");
   }, [data.users]);
 
-  const filteredCooks = cooks.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    maskEmail(c.email, user.email).toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCooks = useMemo(() => {
+    if (!deferredSearchTerm) return cooks;
+    const lowerSearch = deferredSearchTerm.toLowerCase();
+    return cooks.filter(c => 
+      c.name.toLowerCase().includes(lowerSearch) || 
+      maskEmail(c.email, user.email).toLowerCase().includes(lowerSearch)
+    );
+  }, [cooks, deferredSearchTerm, user.email]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
@@ -147,16 +126,32 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
   const prevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
 
+  const archivedRequests = useMemo(() => {
+    return data.pastHistories?.flatMap(h => h.requests || []) || [];
+  }, [data.pastHistories]);
+
   const allRequests = useMemo(() => {
-    const pastRequests = data.pastHistories?.flatMap(h => h.requests || []) || [];
-    return [...data.requests, ...pastRequests];
-  }, [data.requests, data.pastHistories]);
+    return [...data.requests, ...archivedRequests];
+  }, [data.requests, archivedRequests]);
+
+  const [cookRequestsPage, setCookRequestsPage] = useState(1);
+  const cookRequestsItemsPerPage = 20;
+
+  useEffect(() => {
+    setCookRequestsPage(1);
+  }, [selectedCook]);
 
   // Filter requests by the selected cook
-  const cookRequests = useMemo(() => {
-    if (!selectedCook) return [];
-    return allRequests.filter(r => r.userId === selectedCook.id);
-  }, [allRequests, selectedCook]);
+  const { cookRequests, paginatedCookRequests } = useMemo(() => {
+    if (!selectedCook) return { cookRequests: [], paginatedCookRequests: [] };
+    const filtered = allRequests.filter(r => r.userId === selectedCook.id);
+    const sorted = filtered.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    const startIndex = (cookRequestsPage - 1) * cookRequestsItemsPerPage;
+    const paginated = sorted.slice(startIndex, startIndex + cookRequestsItemsPerPage);
+    
+    return { cookRequests: sorted, paginatedCookRequests: paginated };
+  }, [allRequests, selectedCook, cookRequestsPage]);
 
   const handleExportAll = () => {
     const formattedData = allRequests.flatMap(req => {
@@ -478,7 +473,7 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
           <h3 className="font-black text-slate-800 text-lg uppercase">Todos los pedidos ({cookRequests.length})</h3>
           <ScrollArea className="h-[60vh]">
             <div className="space-y-3 pr-4">
-              {cookRequests.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map(req => (
+              {paginatedCookRequests.map(req => (
                  <div
                    key={req.id}
                    className="w-full flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl group"
@@ -501,16 +496,7 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
                      </div>
                    </div>
                    <div className="flex items-center gap-2 shrink-0">
-                     {(req.status === 'rejected' || user.role === 'admin') && (
-                       <Button
-                         variant="ghost"
-                         size="icon"
-                         className="h-8 w-8 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-lg"
-                         onClick={(e) => { e.stopPropagation(); handleDeleteRequest(req.id); }}
-                       >
-                         <Trash2 className="w-4 h-4" />
-                       </Button>
-                     )}
+                     {/* Historia protegida */}
                    </div>
                  </div>
               ))}
@@ -518,6 +504,16 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
                 <div className="h-48 flex flex-col items-center justify-center text-slate-300 border-4 border-dashed border-slate-50 rounded-[2rem]">
                   <Package className="w-12 h-12 mb-3 opacity-20" />
                   <p className="text-[10px] md:text-sm uppercase font-black tracking-widest">Sin actividad registrada</p>
+                </div>
+              )}
+              
+              {cookRequests.length > cookRequestsItemsPerPage && (
+                <div className="flex justify-center mt-4">
+                  <div className="flex items-center gap-2 bg-white px-2 py-1.5 rounded-xl border border-slate-200 shadow-sm">
+                    <Button variant="ghost" size="sm" onClick={() => setCookRequestsPage(prev => Math.max(1, prev - 1))} disabled={cookRequestsPage === 1}>Anterior</Button>
+                    <div className="text-xs font-bold px-2">{cookRequestsPage} / {Math.ceil(cookRequests.length / cookRequestsItemsPerPage)}</div>
+                    <Button variant="ghost" size="sm" onClick={() => setCookRequestsPage(prev => Math.min(Math.ceil(cookRequests.length / cookRequestsItemsPerPage), prev + 1))} disabled={cookRequestsPage >= Math.ceil(cookRequests.length / cookRequestsItemsPerPage)}>Siguiente</Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -589,16 +585,6 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
                           </div>
                         </button>
                         <div className="flex items-center gap-2 shrink-0">
-                          {(req.status === 'rejected' || user.role === 'admin') && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-lg"
-                              onClick={(e) => { e.stopPropagation(); handleDeleteRequest(req.id); }}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          )}
                           <button onClick={() => setSelectedRequest(req)}>
                             <ChevronRightIcon className="w-5 h-5 text-slate-300 group-hover:text-red-600 transition-colors" />
                           </button>
@@ -720,34 +706,6 @@ export default function RequestsHistorySection({ user, data, onExportAll }: Requ
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-[1.2rem] h-12 font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-red-500/20"
               >
                 Volver
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent className="border-none rounded-3xl shadow-[0_20px_50px_-10px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.8)] overflow-hidden max-w-sm bg-white">
-          <DialogHeader className="bg-gradient-to-r from-red-600 to-red-700 text-white p-6 shadow-inner text-center">
-            <Trash2 className="w-12 h-12 mx-auto mb-4 opacity-80" />
-            <DialogTitle className="text-xl font-black tracking-tight drop-shadow-sm">¿Eliminar Registro?</DialogTitle>
-            <DialogDescription className="text-red-100 text-xs font-bold uppercase tracking-widest leading-relaxed mt-2">
-              Esta acción borrará permanentemente este pedido del historial.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-6 text-center text-sm font-medium text-slate-600">
-            ¿Está seguro de que desea eliminar este pedido? No podrá recuperarlo.
-          </div>
-          <DialogFooter className="p-4 bg-slate-50 border-t border-slate-100 flex gap-2 sm:justify-center">
-            <Button variant="ghost" onClick={() => setIsDeleteDialogOpen(false)} className="rounded-xl font-bold uppercase tracking-widest text-xs text-slate-500 hover:bg-slate-200">
-              Cancelar
-            </Button>
-            {user.role !== "viewer" && (
-              <Button 
-                onClick={confirmDeleteRequest} 
-                className="rounded-xl font-bold uppercase tracking-widest text-xs bg-red-600 text-white hover:bg-red-700 shadow-md"
-              >
-                Confirmar Borrado
               </Button>
             )}
           </DialogFooter>

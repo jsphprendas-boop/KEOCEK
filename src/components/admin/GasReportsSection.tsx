@@ -1,133 +1,129 @@
-import React from "react";
-import { GasReport, User } from "../../types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
-import { Fuel, Download, Trash2, FileText } from "lucide-react";
-import { exportToExcel, exportToPDF } from "../../lib/exportUtils";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Fuel, Plus, Trash2, Calendar } from "lucide-react";
 import { toast } from "sonner";
 
-interface GasReportsSectionProps {
-  reports: GasReport[];
-  user: User;
-}
+export default function GasReportsSection({ reports, user, onGlobalRefresh }: any) {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-export default function GasReportsSection({ reports, user }: GasReportsSectionProps) {
-  const handleDeleteReport = async (reportId: string) => {
-    if (!window.confirm("¿Estás seguro de que deseas eliminar este reporte de gas? Se enviará a la papelera.")) return;
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!amount) return;
+    setIsLoading(true);
     try {
-      const res = await fetch(`/api/gas-reports/${reportId}`, { method: "DELETE" });
+      const res = await fetch("/api/gas-reports", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-user-email": user.email,
+        },
+        body: JSON.stringify({
+          amount: parseFloat(amount),
+          note,
+          userName: user.name,
+        }),
+      });
       if (res.ok) {
-        toast.success("Reporte eliminado");
+        toast.success("El reporte de gas ha sido guardado exitosamente.");
+        setAmount("");
+        setNote("");
+        if (onGlobalRefresh) onGlobalRefresh();
       } else {
-        toast.error("Error al eliminar el reporte");
+        const d = await res.json();
+        toast.error(d.error || "No autorizado");
       }
     } catch (e) {
-      toast.error("Error de conexión");
+      toast.error("No se pudo conectar al servidor.");
     }
-  };
-  const handleExportGas = () => {
-    const formattedData = reports.map(g => ({
-      "Fecha": new Date(g.timestamp).toLocaleDateString(),
-      "Hora": new Date(g.timestamp).toLocaleTimeString(),
-      "Litros": g.amount,
-      "Reportó": g.userName || "N/A",
-      "Nota": g.note || ""
-    }));
-    exportToExcel(formattedData, "Reportes_Gas");
+    setIsLoading(false);
   };
 
-  const handleExportGasPDF = () => {
-    const formattedData = reports.map(g => ({
-      "Fecha": format(new Date(g.timestamp), "dd/MM/yyyy"),
-      "Hora": format(new Date(g.timestamp), "HH:mm"),
-      "Litros": `${g.amount} L`,
-      "Responsable": g.userName || "N/A",
-      "Nota": g.note || "-"
-    }));
-    exportToPDF(formattedData, "Reportes_Gas", "REPORTE DE CONSUMO DE GAS");
+  const handleDelete = async (id: string) => {
+    if (!window.confirm("¿Eliminar este reporte de gas?")) return;
+    try {
+      const res = await fetch(`/api/gas-reports/${id}`, {
+        method: "DELETE",
+        headers: { "x-user-email": user.email },
+      });
+      if (res.ok) {
+        toast.success("Reporte eliminado");
+        if (onGlobalRefresh) onGlobalRefresh();
+      }
+    } catch (e) {}
   };
-
-  const groupedReports = reports.reduce((acc, report) => {
-    const dateKey = format(new Date(report.timestamp), 'yyyy-MM-dd');
-    if (!acc[dateKey]) acc[dateKey] = [];
-    acc[dateKey].push(report);
-    return acc;
-  }, {} as Record<string, GasReport[]>);
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200">
-        <h3 className="font-bold text-slate-800 uppercase tracking-tight">Reportes de Gas</h3>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="rounded-xl font-bold uppercase text-[10px] tracking-widest border-orange-200 text-orange-600 hover:bg-orange-50"
-            onClick={handleExportGas}
-            disabled={reports.length === 0}
-          >
-            <Download className="w-3.5 h-3.5 mr-2" />
-            Excel
-          </Button>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="rounded-xl font-bold uppercase text-[10px] tracking-widest border-red-200 text-red-600 hover:bg-red-50"
-            onClick={handleExportGasPDF}
-            disabled={reports.length === 0}
-          >
-            <FileText className="w-3.5 h-3.5 mr-2" />
-            PDF
-          </Button>
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center shadow-inner">
+          <Fuel className="w-6 h-6 text-amber-600" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-black text-slate-800 tracking-tight">Reportes de Gas</h2>
+          <p className="text-sm font-medium text-slate-500">Gestión y control de recargas de gas</p>
         </div>
       </div>
-      {Object.keys(groupedReports).sort((a, b) => b.localeCompare(a)).map(date => (
-        <Card key={date} className="border-slate-200">
-          <CardHeader className="bg-slate-50 border-b border-slate-100 p-4">
-            <CardTitle className="text-sm font-black text-slate-800 uppercase tracking-widest">
-              {format(new Date(date + "T12:00:00"), "d 'de' MMMM", { locale: es })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {groupedReports[date].map(report => (
-              <div key={report.id} className="flex items-center justify-between p-4 border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-full bg-orange-100">
-                    <Fuel className="w-4 h-4 text-orange-600" />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Registrar Nueva Carga</CardTitle>
+          <CardDescription>Añade un nuevo reporte de carga de gas al historial.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleCreate} className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="space-y-2 w-full md:w-1/3">
+              <Label>Cantidad (Litros)</Label>
+              <Input type="number" step="0.01" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} required placeholder="Ej: 50.5" />
+            </div>
+            <div className="space-y-2 w-full md:w-1/2">
+              <Label>Nota / Responsable</Label>
+              <Input type="text" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ej: Recarga semanal" />
+            </div>
+            <Button type="submit" disabled={isLoading} className="w-full md:w-auto bg-amber-600 hover:bg-amber-700 text-white">
+              <Plus className="w-4 h-4 mr-2" /> Registrar Carga
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Historial de Reportes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(!reports || reports.length === 0) ? (
+            <div className="text-center py-12 text-slate-500">No hay reportes de gas registrados.</div>
+          ) : (
+            <div className="space-y-4">
+              {reports.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((report: any) => (
+                <div key={report.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-amber-100/50 rounded-lg flex items-center justify-center">
+                      <Fuel className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-800">{report.amount} Litros</div>
+                      <div className="text-xs text-slate-500 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" /> {new Date(report.timestamp).toLocaleString()} • {report.userName} {report.note ? `• ${report.note}` : ''}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">{report.userName}</p>
-                    {report.note && <p className="text-xs text-slate-500 italic">{report.note}</p>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-right">
-                    <p className="text-lg font-black text-orange-600">{report.amount} L</p>
-                    <p className="text-[10px] text-slate-400 font-mono">{format(new Date(report.timestamp), 'HH:mm')}</p>
-                  </div>
-                  {user.role === "admin" && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDeleteReport(report.id)}
-                      className="text-slate-300 hover:text-red-600 hover:bg-red-50 h-8 w-8 rounded-lg transition-colors"
-                    >
+                  {user.role === 'admin' && (
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(report.id)} className="text-red-500 hover:text-red-600 hover:bg-red-50">
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
                 </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      ))}
-      {reports.length === 0 && (
-        <div className="text-center py-20 text-slate-400">
-          <p className="text-sm font-bold uppercase tracking-widest">Sin reportes de gas</p>
-        </div>
-      )}
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
